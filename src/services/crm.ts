@@ -1,5 +1,14 @@
 import { requireSupabase } from '../lib/supabase'
-import type { CrmLead, CrmLeadComment, CrmStage, LeadOrigin } from '../types'
+import type {
+  ClinicalRecord,
+  CommercialCase,
+  CrmLead,
+  CrmLeadComment,
+  CrmLeadDetail,
+  CrmStage,
+  LeadOrigin,
+  TraceabilityEvent,
+} from '../types'
 
 export const CRM_COMPANY_KEY = 'especialidades-dentales' as const
 
@@ -7,6 +16,9 @@ export const CRM_TABLES = {
   leads: 'crm_leads',
   pipelineStages: 'crm_pipeline_stages',
   companyMembers: 'crm_company_members',
+  clinicalRecords: 'ficha_clinica',
+  commercialCases: 'caso_comercial',
+  traceability: 'caso_trazabilidad',
 } as const
 
 export type MovementMode = 'automatic' | 'manual'
@@ -76,6 +88,9 @@ export const DENTAL_PIPELINE_FALLBACK: CrmStage[] = [
 
 export type RawLead = Record<string, unknown>
 export type RawCompanyMember = Record<string, unknown>
+type RawClinicalRecord = Record<string, unknown>
+type RawCommercialCase = Record<string, unknown>
+type RawTraceabilityEvent = Record<string, unknown>
 
 function safeObject(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
@@ -132,6 +147,61 @@ function mapComment(value: unknown, index: number): CrmLeadComment {
     author: stringValue(row.author, row.autor) || 'Equipo',
     at: stringValue(row.at, row.timestamp, row.fecha) || new Date().toISOString(),
     text: stringValue(row.text, row.comment, row.comentario) || 'Sin comentario',
+  }
+}
+
+function mapClinicalRecord(row: RawClinicalRecord | null): ClinicalRecord | null {
+  if (!row) return null
+
+  return {
+    id: stringValue(row.id),
+    leadId: stringValue(row.lead_id),
+    companyKey: stringValue(row.company_key),
+    waId: stringValue(row.wa_id),
+    motivoConsulta: stringValue(row.motivo_consulta),
+    diagnostico: stringValue(row.diagnostico),
+    tratamientoPropuesto: stringValue(row.tratamiento_propuesto),
+    especialidad: stringValue(row.especialidad),
+    piezasInvolucradas: stringValue(row.piezas_involucradas),
+    notasEvolucion: stringValue(row.notas_evolucion),
+    archivosAdjuntos: safeArray<string>(row.archivos_adjuntos).map((item) => String(item)),
+    updatedAt: stringValue(row.updated_at, row.created_at),
+  }
+}
+
+function mapCommercialCase(row: RawCommercialCase | null): CommercialCase | null {
+  if (!row) return null
+
+  return {
+    id: stringValue(row.id),
+    leadId: stringValue(row.lead_id),
+    companyKey: stringValue(row.company_key),
+    waId: stringValue(row.wa_id),
+    costoCotizado: numberValue(row.costo_cotizado),
+    promocionAplicada: stringValue(row.promocion_aplicada),
+    objeciones: stringValue(row.objeciones),
+    indicacionSeguimiento: stringValue(row.indicacion_seguimiento),
+    proximaCitaSugerida: stringValue(row.proxima_cita_sugerida),
+    estado: stringValue(row.estado),
+    montoCerrado: numberValue(row.monto_cerrado),
+    cerradoPor: stringValue(row.cerrado_por),
+    escaladoCloser: Boolean(row.escalado_closer),
+    escaladoMotivo: stringValue(row.escalado_motivo),
+    updatedAt: stringValue(row.updated_at, row.created_at),
+  }
+}
+
+function mapTraceabilityEvent(row: RawTraceabilityEvent): TraceabilityEvent {
+  return {
+    id: stringValue(row.id),
+    caseId: stringValue(row.caso_comercial_id),
+    leadId: stringValue(row.lead_id),
+    companyKey: stringValue(row.company_key),
+    waId: stringValue(row.wa_id),
+    timestamp: stringValue(row.timestamp, row.created_at),
+    tipoEvento: stringValue(row.tipo_evento),
+    responsable: (stringValue(row.responsable) || 'sistema') as TraceabilityEvent['responsable'],
+    metadata: safeObject(row.metadata),
   }
 }
 
@@ -294,4 +364,39 @@ export async function updateDentalLeadStage(params: {
 
   if (error) throw error
   return mapDentalLead(data as RawLead)
+}
+
+export async function getDentalLeadDetail(leadId: string): Promise<CrmLeadDetail> {
+  const client = requireSupabase()
+
+  const [clinicalResult, commercialResult, traceabilityResult] = await Promise.all([
+    client
+      .from(CRM_TABLES.clinicalRecords)
+      .select('*')
+      .eq('lead_id', leadId)
+      .eq('company_key', CRM_COMPANY_KEY)
+      .maybeSingle(),
+    client
+      .from(CRM_TABLES.commercialCases)
+      .select('*')
+      .eq('lead_id', leadId)
+      .eq('company_key', CRM_COMPANY_KEY)
+      .maybeSingle(),
+    client
+      .from(CRM_TABLES.traceability)
+      .select('*')
+      .eq('lead_id', leadId)
+      .eq('company_key', CRM_COMPANY_KEY)
+      .order('timestamp', { ascending: false }),
+  ])
+
+  if (clinicalResult.error) throw clinicalResult.error
+  if (commercialResult.error) throw commercialResult.error
+  if (traceabilityResult.error) throw traceabilityResult.error
+
+  return {
+    clinicalRecord: mapClinicalRecord(clinicalResult.data as RawClinicalRecord | null),
+    commercialCase: mapCommercialCase(commercialResult.data as RawCommercialCase | null),
+    traceability: (traceabilityResult.data ?? []).map((row) => mapTraceabilityEvent(row as RawTraceabilityEvent)),
+  }
 }

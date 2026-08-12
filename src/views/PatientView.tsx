@@ -1,14 +1,26 @@
-import type { CrmLead, CrmStage } from '../types'
+import type { ClinicalRecord, CommercialCase, CrmLead, CrmLeadDetail, CrmStage, TraceabilityEvent } from '../types'
 
 interface Props {
   lead: CrmLead | null
+  detail: CrmLeadDetail | null
+  detailLoading: boolean
+  detailError: string
   stages: CrmStage[]
   movingLeadId: string
   onMoveLead: (leadId: string, stageKey: string) => void
   onBackToCrm: () => void
 }
 
-export function PatientView({ lead, stages, movingLeadId, onMoveLead, onBackToCrm }: Props) {
+export function PatientView({
+  lead,
+  detail,
+  detailLoading,
+  detailError,
+  stages,
+  movingLeadId,
+  onMoveLead,
+  onBackToCrm,
+}: Props) {
   if (!lead) {
     return (
       <div className="view-stack">
@@ -23,8 +35,10 @@ export function PatientView({ lead, stages, movingLeadId, onMoveLead, onBackToCr
   }
 
   const raw = lead.rawPayload
-  const events = buildEvents(lead)
   const currentStage = stages.find((stage) => stage.stage_key === lead.stageKey)
+  const clinical = detail?.clinicalRecord ?? null
+  const commercial = detail?.commercialCase ?? null
+  const events = buildEvents(lead, detail?.traceability ?? [])
 
   return (
     <div className="view-stack">
@@ -39,6 +53,14 @@ export function PatientView({ lead, stages, movingLeadId, onMoveLead, onBackToCr
           <button className="secondary-button" disabled>Exportar PDF</button>
         </div>
       </div>
+
+      {detailError && (
+        <section className="panel warning-panel">
+          <span className="eyebrow">Ficha</span>
+          <h2>No se pudo leer el detalle nuevo</h2>
+          <p>{detailError}</p>
+        </section>
+      )}
 
       <section className="profile-banner">
         <div className="avatar xl">{lead.name.slice(0, 1)}</div>
@@ -82,11 +104,13 @@ export function PatientView({ lead, stages, movingLeadId, onMoveLead, onBackToCr
               <h2>Valoracion</h2>
             </div>
           </div>
-          <Field label="Motivo de consulta" value={readValue(raw.motivo_consulta, raw.motivo, lead.treatment)} />
-          <Field label="Diagnostico" value={readValue(raw.diagnostico)} />
-          <Field label="Tratamiento propuesto" value={readValue(raw.tratamiento_propuesto, raw.especialidad, lead.treatment)} />
-          <Field label="Piezas involucradas" value={readValue(raw.piezas_involucradas)} />
-          <Field label="Notas de evolucion" value={readValue(raw.notas_evolucion)} />
+          <Field label="Motivo de consulta" value={clinicalText(clinical, 'motivoConsulta') || readValue(raw.motivo_consulta, raw.motivo, lead.treatment)} />
+          <Field label="Diagnostico" value={clinicalText(clinical, 'diagnostico') || readValue(raw.diagnostico)} />
+          <Field label="Tratamiento propuesto" value={clinicalText(clinical, 'tratamientoPropuesto') || readValue(raw.tratamiento_propuesto, raw.especialidad, lead.treatment)} />
+          <Field label="Especialidad" value={clinicalText(clinical, 'especialidad') || readValue(raw.especialidad)} />
+          <Field label="Piezas involucradas" value={clinicalText(clinical, 'piezasInvolucradas') || readValue(raw.piezas_involucradas)} />
+          <Field label="Notas de evolucion" value={clinicalText(clinical, 'notasEvolucion') || readValue(raw.notas_evolucion)} />
+          <Field label="Adjuntos" value={clinical?.archivosAdjuntos.length ? `${clinical.archivosAdjuntos.length} archivo(s)` : 'Sin adjuntos'} />
         </article>
 
         <article className="panel record-card commercial-card">
@@ -99,15 +123,17 @@ export function PatientView({ lead, stages, movingLeadId, onMoveLead, onBackToCr
           </div>
           <div className="money-box">
             <span>Costo cotizado</span>
-            <strong>{lead.quotedAmount ? money(lead.quotedAmount) : 'Pendiente'}</strong>
+            <strong>{commercial?.costoCotizado ? money(commercial.costoCotizado) : lead.quotedAmount ? money(lead.quotedAmount) : 'Pendiente'}</strong>
           </div>
-          <Field label="Promocion aplicada" value={readValue(raw.promocion_aplicada)} />
-          <Field label="Objeciones" value={readValue(raw.objeciones)} />
-          <Field label="Indicacion seguimiento" value={readValue(raw.indicacion_seguimiento, lead.reminderText)} />
-          <Field label="Proxima cita sugerida" value={lead.appointmentDate ? formatDateTime(lead.appointmentDate) : 'Pendiente'} />
+          <Field label="Promocion aplicada" value={commercialText(commercial, 'promocionAplicada') || readValue(raw.promocion_aplicada)} />
+          <Field label="Objeciones" value={commercialText(commercial, 'objeciones') || readValue(raw.objeciones)} />
+          <Field label="Indicacion seguimiento" value={commercialText(commercial, 'indicacionSeguimiento') || readValue(raw.indicacion_seguimiento, lead.reminderText)} />
+          <Field label="Proxima cita sugerida" value={commercial?.proximaCitaSugerida ? formatDateTime(commercial.proximaCitaSugerida) : lead.appointmentDate ? formatDateTime(lead.appointmentDate) : 'Pendiente'} />
+          <Field label="Cerrado por" value={commercialText(commercial, 'cerradoPor') || 'No definido'} />
+          <Field label="Monto cerrado" value={commercial?.montoCerrado ? money(commercial.montoCerrado) : 'Sin abono'} />
           <div className="status-strip">
             <span>Estado</span>
-            <strong>{readValue(raw.estado, lead.appointmentStatus, currentStage?.name)}</strong>
+            <strong>{commercialText(commercial, 'estado') || readValue(raw.estado, lead.appointmentStatus, currentStage?.name)}</strong>
           </div>
         </article>
       </section>
@@ -119,6 +145,7 @@ export function PatientView({ lead, stages, movingLeadId, onMoveLead, onBackToCr
               <span className="eyebrow">Agenda</span>
               <h2>Datos operativos</h2>
             </div>
+            {detailLoading && <span className="soft-pill">Cargando detalle...</span>}
           </div>
           <div className="field-grid">
             <Field label="Fecha de cita" value={lead.appointmentDate ? formatDateTime(lead.appointmentDate) : 'Sin fecha'} />
@@ -127,6 +154,8 @@ export function PatientView({ lead, stages, movingLeadId, onMoveLead, onBackToCr
             <Field label="Canal" value={lead.source || 'WhatsApp'} />
             <Field label="Seguimiento" value={lead.reminderAt ? formatDateTime(lead.reminderAt) : 'Sin recordatorio'} />
             <Field label="Ultimo contacto" value={lead.lastContactAt ? formatDateTime(lead.lastContactAt) : 'Sin registro'} />
+            <Field label="Escalado a closer" value={commercial?.escaladoCloser ? 'Si' : 'No'} />
+            <Field label="Motivo escalamiento" value={commercialText(commercial, 'escaladoMotivo') || 'No mencionado'} />
           </div>
         </article>
 
@@ -184,8 +213,27 @@ function readValue(...values: unknown[]): string {
   return 'No mencionado'
 }
 
-function buildEvents(lead: CrmLead) {
-  const events = [
+function clinicalText(record: ClinicalRecord | null, field: keyof ClinicalRecord): string {
+  const value = record?.[field]
+  return typeof value === 'string' && value.trim() ? value.trim() : ''
+}
+
+function commercialText(record: CommercialCase | null, field: keyof CommercialCase): string {
+  const value = record?.[field]
+  return typeof value === 'string' && value.trim() ? value.trim() : ''
+}
+
+function buildEvents(lead: CrmLead, traceability: TraceabilityEvent[]) {
+  if (traceability.length > 0) {
+    return traceability.map((event) => ({
+      id: event.id,
+      timestamp: formatDateTime(event.timestamp),
+      type: event.tipoEvento,
+      responsible: event.responsable,
+    }))
+  }
+
+  return [
     lead.createdAt
       ? { id: 'created', timestamp: formatDateTime(lead.createdAt), type: 'Lead creado en CRM', responsible: 'sistema' }
       : null,
@@ -199,15 +247,6 @@ function buildEvents(lead: CrmLead) {
       ? { id: 'updated', timestamp: formatDateTime(lead.updatedAt), type: 'Ultima actualizacion del lead', responsible: 'sistema' }
       : null,
   ].filter(Boolean) as Array<{ id: string; timestamp: string; type: string; responsible: string }>
-
-  const commentEvents = lead.comments.map((comment) => ({
-    id: comment.id,
-    timestamp: formatDateTime(comment.at),
-    type: comment.text,
-    responsible: comment.author,
-  }))
-
-  return [...events, ...commentEvents]
 }
 
 function formatDateTime(value: string): string {

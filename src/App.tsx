@@ -5,9 +5,10 @@ import { AutomationView } from './views/AutomationView'
 import { DashboardView } from './views/DashboardView'
 import { PatientView } from './views/PatientView'
 import { WaitingRoomView } from './views/WaitingRoomView'
-import type { CrmLead, CrmStage, Patient } from './types'
+import type { CrmLead, CrmLeadDetail, CrmStage, Patient } from './types'
 import {
   DENTAL_PIPELINE_FALLBACK,
+  getDentalLeadDetail,
   getDentalPipelineStages,
   listDentalCrmLeads,
   updateDentalLeadStage,
@@ -24,6 +25,9 @@ export default function App() {
   const [pipelineSource, setPipelineSource] = useState<'supabase' | 'fallback'>('fallback')
   const [pipelineWarning, setPipelineWarning] = useState('')
   const [movingLeadId, setMovingLeadId] = useState('')
+  const [leadDetail, setLeadDetail] = useState<CrmLeadDetail | null>(null)
+  const [leadDetailLoading, setLeadDetailLoading] = useState(false)
+  const [leadDetailError, setLeadDetailError] = useState('')
 
   async function loadCrm() {
     setCrmLoading(true)
@@ -52,6 +56,38 @@ export default function App() {
     () => crmLeads.find((lead) => lead.id === selectedLeadId) ?? null,
     [crmLeads, selectedLeadId],
   )
+
+  useEffect(() => {
+    if (!selectedLeadId) {
+      setLeadDetail(null)
+      setLeadDetailError('')
+      return
+    }
+
+    let cancelled = false
+
+    async function loadLeadDetail() {
+      setLeadDetailLoading(true)
+      setLeadDetailError('')
+
+      try {
+        const detail = await getDentalLeadDetail(selectedLeadId)
+        if (!cancelled) setLeadDetail(detail)
+      } catch (error) {
+        if (!cancelled) {
+          setLeadDetail(null)
+          setLeadDetailError(error instanceof Error ? error.message : 'No se pudo cargar la ficha del paciente.')
+        }
+      } finally {
+        if (!cancelled) setLeadDetailLoading(false)
+      }
+    }
+
+    void loadLeadDetail()
+    return () => {
+      cancelled = true
+    }
+  }, [selectedLeadId])
 
   async function handleMoveLead(leadId: string, stageKey: string) {
     const lead = crmLeads.find((item) => item.id === leadId)
@@ -131,6 +167,9 @@ export default function App() {
           {view === 'patient' && (
             <PatientView
               lead={selectedLead}
+              detail={leadDetail}
+              detailLoading={leadDetailLoading}
+              detailError={leadDetailError}
               stages={crmStages}
               movingLeadId={movingLeadId}
               onMoveLead={handleMoveLead}

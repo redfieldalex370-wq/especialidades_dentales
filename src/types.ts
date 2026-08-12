@@ -64,6 +64,57 @@ export interface CrmLead {
   updatedAt: string
 }
 
+export interface ClinicalRecord {
+  id: string
+  leadId: string
+  companyKey: string
+  waId: string
+  motivoConsulta: string
+  diagnostico: string
+  tratamientoPropuesto: string
+  especialidad: string
+  piezasInvolucradas: string
+  notasEvolucion: string
+  archivosAdjuntos: string[]
+  updatedAt: string
+}
+
+export interface CommercialCase {
+  id: string
+  leadId: string
+  companyKey: string
+  waId: string
+  costoCotizado: number | null
+  promocionAplicada: string
+  objeciones: string
+  indicacionSeguimiento: string
+  proximaCitaSugerida: string
+  estado: string
+  montoCerrado: number | null
+  cerradoPor: string
+  escaladoCloser: boolean
+  escaladoMotivo: string
+  updatedAt: string
+}
+
+export interface TraceabilityEvent {
+  id: string
+  caseId: string
+  leadId: string
+  companyKey: string
+  waId: string
+  timestamp: string
+  tipoEvento: string
+  responsable: 'bot' | 'doctor' | 'closer' | 'sistema'
+  metadata: Record<string, unknown>
+}
+
+export interface CrmLeadDetail {
+  clinicalRecord: ClinicalRecord | null
+  commercialCase: CommercialCase | null
+  traceability: TraceabilityEvent[]
+}
+
 export interface TraceEvent {
   id: string
   timestamp: string
