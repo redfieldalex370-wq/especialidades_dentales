@@ -1,0 +1,50 @@
+name: Deploy to Hostinger
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_N8N_SCHEDULER_URL: ${{ secrets.VITE_N8N_SCHEDULER_URL }}
+        run: npm run build
+
+      - name: Install sshpass
+        run: sudo apt-get update && sudo apt-get install -y sshpass
+
+      - name: Upload build to Hostinger
+        env:
+          HOSTINGER_HOST: ${{ secrets.HOSTINGER_HOST }}
+          HOSTINGER_PORT: ${{ secrets.HOSTINGER_PORT }}
+          HOSTINGER_USERNAME: ${{ secrets.HOSTINGER_USERNAME }}
+          HOSTINGER_PASSWORD: ${{ secrets.HOSTINGER_PASSWORD }}
+          HOSTINGER_TARGET_DIR: ${{ secrets.HOSTINGER_TARGET_DIR }}
+        run: |
+          test -n "$HOSTINGER_HOST"
+          test -n "$HOSTINGER_PORT"
+          test -n "$HOSTINGER_USERNAME"
+          test -n "$HOSTINGER_PASSWORD"
+          test -n "$HOSTINGER_TARGET_DIR"
+          sshpass -p "$HOSTINGER_PASSWORD" ssh -p "$HOSTINGER_PORT" -o StrictHostKeyChecking=no "$HOSTINGER_USERNAME@$HOSTINGER_HOST" "mkdir -p '$HOSTINGER_TARGET_DIR'"
+          sshpass -p "$HOSTINGER_PASSWORD" rsync -avz --delete -e "ssh -p $HOSTINGER_PORT -o StrictHostKeyChecking=no" dist/ "$HOSTINGER_USERNAME@$HOSTINGER_HOST:$HOSTINGER_TARGET_DIR/"
