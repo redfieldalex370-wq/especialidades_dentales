@@ -1,33 +1,59 @@
+import { useDeferredValue, useMemo, useState } from 'react'
 import type { ClinicalRecord, CommercialCase, CrmLead, CrmLeadDetail, CrmStage, TraceabilityEvent } from '../types'
 
 interface Props {
   lead: CrmLead | null
+  leads: CrmLead[]
   detail: CrmLeadDetail | null
   detailLoading: boolean
   detailError: string
   stages: CrmStage[]
   movingLeadId: string
   onMoveLead: (leadId: string, stageKey: string) => void
+  onOpenLead: (leadId: string) => void
   onBackToCrm: () => void
 }
 
 export function PatientView({
   lead,
+  leads,
   detail,
   detailLoading,
   detailError,
   stages,
   movingLeadId,
   onMoveLead,
+  onOpenLead,
   onBackToCrm,
 }: Props) {
+  const [search, setSearch] = useState('')
+  const deferredSearch = useDeferredValue(search)
+  const visiblePatients = useMemo(() => {
+    const normalized = deferredSearch.trim().toLowerCase()
+    const filtered = normalized
+      ? leads.filter((item) => {
+          const haystack = `${item.name} ${item.phone} ${item.waId} ${item.treatment} ${item.stageKey}`.toLowerCase()
+          return haystack.includes(normalized)
+        })
+      : leads
+
+    return filtered.slice(0, 10)
+  }, [deferredSearch, leads])
+
   if (!lead) {
     return (
       <div className="view-stack">
+        <PatientPicker
+          search={search}
+          visiblePatients={visiblePatients}
+          onSearchChange={setSearch}
+          onOpenLead={onOpenLead}
+        />
+
         <section className="panel empty-record-panel">
           <span className="eyebrow">Ficha</span>
-          <h1>Selecciona un paciente desde el CRM</h1>
-          <p>La ficha se alimenta del mismo lead. No genera un registro aparte ni rompe la trazabilidad por wa_id.</p>
+          <h1>Busca y abre un paciente</h1>
+          <p>Desde aqui puedes localizar pacientes por nombre, telefono, wa_id o tratamiento sin volver al tablero.</p>
           <button className="primary-button" onClick={onBackToCrm}>Volver al CRM</button>
         </section>
       </div>
@@ -42,6 +68,13 @@ export function PatientView({
 
   return (
     <div className="view-stack">
+      <PatientPicker
+        search={search}
+        visiblePatients={visiblePatients}
+        onSearchChange={setSearch}
+        onOpenLead={onOpenLead}
+      />
+
       <div className="section-head standalone">
         <div>
           <span className="eyebrow">Ficha comercial</span>
@@ -193,6 +226,64 @@ export function PatientView({
         </div>
       </section>
     </div>
+  )
+}
+
+function PatientPicker({
+  search,
+  visiblePatients,
+  onSearchChange,
+  onOpenLead,
+}: {
+  search: string
+  visiblePatients: CrmLead[]
+  onSearchChange: (value: string) => void
+  onOpenLead: (leadId: string) => void
+}) {
+  return (
+    <section className="panel patient-browser-panel">
+      <div className="section-head compact">
+        <div>
+          <span className="eyebrow">Buscador</span>
+          <h2>Encuentra un paciente desde aqui</h2>
+        </div>
+        <span className="soft-pill">{visiblePatients.length} visibles</span>
+      </div>
+
+      <div className="patient-browser-bar">
+        <input
+          className="patient-search-input"
+          value={search}
+          onChange={(event) => onSearchChange(event.target.value)}
+          placeholder="Buscar por nombre, telefono, wa_id o tratamiento"
+        />
+      </div>
+
+      <div className="patient-browser-list">
+        {visiblePatients.length > 0 ? (
+          visiblePatients.map((item) => (
+            <button className="patient-browser-row" key={item.id} onClick={() => onOpenLead(item.id)}>
+              <div className="patient-browser-main">
+                <strong>{item.name}</strong>
+                <span>{item.phone || item.waId || 'Sin telefono'}</span>
+              </div>
+              <div className="patient-browser-meta">
+                <span>{item.treatment || 'Sin tratamiento'}</span>
+                <small>{item.stageKey.replaceAll('_', ' ')}</small>
+              </div>
+              <div className="patient-browser-date">
+                <strong>{item.appointmentDate ? formatDateTime(item.appointmentDate) : 'Sin cita'}</strong>
+              </div>
+            </button>
+          ))
+        ) : (
+          <div className="empty-state empty-state-compact">
+            <h3>No encontramos pacientes</h3>
+            <p>Prueba con otro nombre, telefono, wa_id o deja vacio el buscador para ver la lista.</p>
+          </div>
+        )}
+      </div>
+    </section>
   )
 }
 

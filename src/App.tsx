@@ -167,12 +167,14 @@ export default function App() {
           {view === 'patient' && (
             <PatientView
               lead={selectedLead}
+              leads={crmLeads}
               detail={leadDetail}
               detailLoading={leadDetailLoading}
               detailError={leadDetailError}
               stages={crmStages}
               movingLeadId={movingLeadId}
               onMoveLead={handleMoveLead}
+              onOpenLead={openLead}
               onBackToCrm={() => setView('dashboard')}
             />
           )}
