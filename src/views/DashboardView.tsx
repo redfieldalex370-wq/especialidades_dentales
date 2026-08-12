@@ -1,3 +1,4 @@
+import { useDeferredValue, useMemo, useState } from 'react'
 import type { CrmLead, CrmStage } from '../types'
 
 interface Props {
@@ -25,6 +26,8 @@ export function DashboardView({
   onOpenLead,
   onRefresh,
 }: Props) {
+  const [patientQuery, setPatientQuery] = useState('')
+  const deferredQuery = useDeferredValue(patientQuery)
   const todayAppointments = leads.filter((lead) => isSameDay(lead.appointmentDate, new Date())).length
   const quotedHighValue = leads.filter((lead) => (lead.quotedAmount ?? 0) >= 45000).length
   const overdueFollowups = leads.filter((lead) => isOverdue(lead.reminderAt, lead.reminderCompleted)).length
@@ -32,6 +35,19 @@ export function DashboardView({
     .filter((lead) => lead.appointmentDate)
     .sort((a, b) => new Date(a.appointmentDate).getTime() - new Date(b.appointmentDate).getTime())
     .slice(0, 6)
+  const visiblePatients = useMemo(() => {
+    const normalized = deferredQuery.trim().toLowerCase()
+    const filtered = normalized
+      ? leads.filter((lead) => {
+          const haystack = `${lead.name} ${lead.phone} ${lead.waId} ${lead.treatment} ${lead.stageKey}`.toLowerCase()
+          return haystack.includes(normalized)
+        })
+      : leads
+
+    return [...filtered]
+      .sort((a, b) => compareDates(a.appointmentDate, b.appointmentDate))
+      .slice(0, 12)
+  }, [deferredQuery, leads])
 
   return (
     <div className="view-stack">
@@ -121,6 +137,50 @@ export function DashboardView({
             ))}
           </div>
         </article>
+      </section>
+
+      <section className="panel patient-browser-panel">
+        <div className="section-head compact">
+          <div>
+            <span className="eyebrow">Pacientes</span>
+            <h2>Busca y abre una ficha</h2>
+          </div>
+          <span className="soft-pill">{visiblePatients.length} visibles</span>
+        </div>
+
+        <div className="patient-browser-bar">
+          <input
+            className="patient-search-input"
+            value={patientQuery}
+            onChange={(event) => setPatientQuery(event.target.value)}
+            placeholder="Buscar por nombre, telefono, wa_id o tratamiento"
+          />
+        </div>
+
+        <div className="patient-browser-list">
+          {visiblePatients.length > 0 ? (
+            visiblePatients.map((lead) => (
+              <button className="patient-browser-row" key={lead.id} onClick={() => onOpenLead(lead.id)}>
+                <div className="patient-browser-main">
+                  <strong>{lead.name}</strong>
+                  <span>{lead.phone || lead.waId || 'Sin telefono'}</span>
+                </div>
+                <div className="patient-browser-meta">
+                  <span>{lead.treatment || 'Sin tratamiento'}</span>
+                  <small>{labelForStage(stages, lead.stageKey)}</small>
+                </div>
+                <div className="patient-browser-date">
+                  <strong>{lead.appointmentDate ? formatDateTime(lead.appointmentDate) : 'Sin cita'}</strong>
+                </div>
+              </button>
+            ))
+          ) : (
+            <EmptyCopy
+              title="No encontramos pacientes"
+              text="Prueba con otro nombre, telefono, wa_id o deja vacio el buscador para ver la lista."
+            />
+          )}
+        </div>
       </section>
 
       <section className="panel crm-board-panel">
