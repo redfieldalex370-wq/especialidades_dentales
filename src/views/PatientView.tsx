@@ -110,15 +110,6 @@ export function PatientView({
 
   return (
     <div className="view-stack">
-      <PatientPicker
-        nameSearch={nameSearch}
-        phoneSearch={phoneSearch}
-        visiblePatients={visiblePatients}
-        onNameSearchChange={setNameSearch}
-        onPhoneSearchChange={setPhoneSearch}
-        onOpenLead={onOpenLead}
-      />
-
       <div className="section-head standalone">
         <div>
           <span className="eyebrow">Ficha comercial</span>
