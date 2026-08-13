@@ -5,12 +5,13 @@ import { AutomationView } from './views/AutomationView'
 import { DashboardView } from './views/DashboardView'
 import { PatientView } from './views/PatientView'
 import { WaitingRoomView } from './views/WaitingRoomView'
-import type { CrmLead, CrmLeadDetail, CrmStage, Patient } from './types'
+import type { CrmLead, CrmLeadDetail, CrmStage, DentalLeadDetailUpdate, Patient } from './types'
 import {
   DENTAL_PIPELINE_FALLBACK,
   getDentalLeadDetail,
   getDentalPipelineStages,
   listDentalCrmLeads,
+  updateDentalLeadDetail,
   updateDentalLeadStage,
 } from './services/crm'
 
@@ -28,6 +29,21 @@ export default function App() {
   const [leadDetail, setLeadDetail] = useState<CrmLeadDetail | null>(null)
   const [leadDetailLoading, setLeadDetailLoading] = useState(false)
   const [leadDetailError, setLeadDetailError] = useState('')
+
+  async function loadLeadDetail(leadId: string) {
+    setLeadDetailLoading(true)
+    setLeadDetailError('')
+
+    try {
+      const detail = await getDentalLeadDetail(leadId)
+      setLeadDetail(detail)
+    } catch (error) {
+      setLeadDetail(null)
+      setLeadDetailError(error instanceof Error ? error.message : 'No se pudo cargar la ficha del paciente.')
+    } finally {
+      setLeadDetailLoading(false)
+    }
+  }
 
   async function loadCrm() {
     setCrmLoading(true)
@@ -66,7 +82,7 @@ export default function App() {
 
     let cancelled = false
 
-    async function loadLeadDetail() {
+    async function run() {
       setLeadDetailLoading(true)
       setLeadDetailError('')
 
@@ -83,11 +99,19 @@ export default function App() {
       }
     }
 
-    void loadLeadDetail()
+    void run()
     return () => {
       cancelled = true
     }
   }, [selectedLeadId])
+
+  async function handleSaveLeadDetail(leadId: string, input: DentalLeadDetailUpdate) {
+    const lead = crmLeads.find((item) => item.id === leadId)
+    if (!lead) throw new Error('No encontramos el lead que quieres editar.')
+
+    await updateDentalLeadDetail(lead, input)
+    await Promise.all([loadCrm(), loadLeadDetail(leadId)])
+  }
 
   async function handleMoveLead(leadId: string, stageKey: string) {
     const lead = crmLeads.find((item) => item.id === leadId)
@@ -176,6 +200,7 @@ export default function App() {
               onMoveLead={handleMoveLead}
               onOpenLead={openLead}
               onBackToCrm={() => setView('dashboard')}
+              onSaveDetail={handleSaveLeadDetail}
             />
           )}
           {view === 'automation' && <AutomationView />}

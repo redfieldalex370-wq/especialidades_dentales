@@ -6,6 +6,7 @@ import type {
   CrmLeadComment,
   CrmLeadDetail,
   CrmStage,
+  DentalLeadDetailUpdate,
   LeadOrigin,
   TraceabilityEvent,
 } from '../types'
@@ -399,4 +400,48 @@ export async function getDentalLeadDetail(leadId: string): Promise<CrmLeadDetail
     commercialCase: mapCommercialCase(commercialResult.data as RawCommercialCase | null),
     traceability: (traceabilityResult.data ?? []).map((row) => mapTraceabilityEvent(row as RawTraceabilityEvent)),
   }
+}
+
+export async function updateDentalLeadDetail(lead: CrmLead, input: DentalLeadDetailUpdate): Promise<CrmLeadDetail> {
+  const client = requireSupabase()
+
+  const clinicalPayload = {
+    lead_id: lead.id,
+    company_key: CRM_COMPANY_KEY,
+    wa_id: lead.waId || lead.phone || null,
+    motivo_consulta: input.clinicalRecord.motivoConsulta || null,
+    diagnostico: input.clinicalRecord.diagnostico || null,
+    tratamiento_propuesto: input.clinicalRecord.tratamientoPropuesto || null,
+    especialidad: input.clinicalRecord.especialidad || null,
+    piezas_involucradas: input.clinicalRecord.piezasInvolucradas || null,
+    notas_evolucion: input.clinicalRecord.notasEvolucion || null,
+    updated_at: new Date().toISOString(),
+  }
+
+  const commercialPayload = {
+    lead_id: lead.id,
+    company_key: CRM_COMPANY_KEY,
+    wa_id: lead.waId || lead.phone || null,
+    costo_cotizado: input.commercialCase.costoCotizado,
+    promocion_aplicada: input.commercialCase.promocionAplicada || null,
+    objeciones: input.commercialCase.objeciones || null,
+    indicacion_seguimiento: input.commercialCase.indicacionSeguimiento || null,
+    proxima_cita_sugerida: input.commercialCase.proximaCitaSugerida || null,
+    estado: input.commercialCase.estado || null,
+    monto_cerrado: input.commercialCase.montoCerrado,
+    cerrado_por: input.commercialCase.cerradoPor || null,
+    escalado_closer: input.commercialCase.escaladoCloser,
+    escalado_motivo: input.commercialCase.escaladoMotivo || null,
+    updated_at: new Date().toISOString(),
+  }
+
+  const [clinicalResult, commercialResult] = await Promise.all([
+    client.from(CRM_TABLES.clinicalRecords).upsert(clinicalPayload, { onConflict: 'lead_id' }),
+    client.from(CRM_TABLES.commercialCases).upsert(commercialPayload, { onConflict: 'lead_id' }),
+  ])
+
+  if (clinicalResult.error) throw clinicalResult.error
+  if (commercialResult.error) throw commercialResult.error
+
+  return getDentalLeadDetail(lead.id)
 }

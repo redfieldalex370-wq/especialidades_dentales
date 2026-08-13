@@ -115,6 +115,29 @@ export interface CrmLeadDetail {
   traceability: TraceabilityEvent[]
 }
 
+export interface DentalLeadDetailUpdate {
+  clinicalRecord: {
+    motivoConsulta: string
+    diagnostico: string
+    tratamientoPropuesto: string
+    especialidad: string
+    piezasInvolucradas: string
+    notasEvolucion: string
+  }
+  commercialCase: {
+    costoCotizado: number | null
+    promocionAplicada: string
+    objeciones: string
+    indicacionSeguimiento: string
+    proximaCitaSugerida: string
+    estado: string
+    montoCerrado: number | null
+    cerradoPor: string
+    escaladoCloser: boolean
+    escaladoMotivo: string
+  }
+}
+
 export interface TraceEvent {
   id: string
   timestamp: string
