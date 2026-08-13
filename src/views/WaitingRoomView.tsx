@@ -57,7 +57,6 @@ export function WaitingRoomView({ patients, setPatients }: Props) {
         <div>
           <span className="eyebrow">Tramo 1</span>
           <h1>Sala de espera</h1>
-          <p>El turno se mueve por hora real de llegada, no por el horario de Calendar.</p>
         </div>
       </div>
 
@@ -78,7 +77,6 @@ export function WaitingRoomView({ patients, setPatients }: Props) {
                 <div><span>Tratamiento</span><strong>{current.treatment ?? 'Por valorar'}</strong></div>
               </div>
               <button className="primary-button" onClick={finishCurrent}>Finalizar manualmente</button>
-              <small className="helper">Después este cierre se disparará automáticamente cuando llegue el audio del doctor.</small>
             </>
           ) : (
             <div className="empty-state">
@@ -113,8 +111,7 @@ export function WaitingRoomView({ patients, setPatients }: Props) {
       <section className="panel walkin-panel">
         <div>
           <span className="eyebrow">Alta sin campaña o sin cita</span>
-          <h2>“No tengo cita”</h2>
-          <p>Entrada corta para crear al paciente en la misma cola usando teléfono como referencia del lead.</p>
+          <h2>No tengo cita</h2>
         </div>
         <form className="walkin-form" onSubmit={addWalkIn}>
           <label>Nombre<input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre del paciente" /></label>

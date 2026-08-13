@@ -26,48 +26,34 @@ export function DashboardView({
   onOpenLead,
   onRefresh,
 }: Props) {
-  const [patientQuery, setPatientQuery] = useState('')
-  const deferredQuery = useDeferredValue(patientQuery)
+  const [nameQuery, setNameQuery] = useState('')
+  const [phoneQuery, setPhoneQuery] = useState('')
+  const deferredNameQuery = useDeferredValue(nameQuery)
+  const deferredPhoneQuery = useDeferredValue(phoneQuery)
   const todayAppointments = leads.filter((lead) => isSameDay(lead.appointmentDate, new Date())).length
   const quotedHighValue = leads.filter((lead) => (lead.quotedAmount ?? 0) >= 45000).length
   const overdueFollowups = leads.filter((lead) => isOverdue(lead.reminderAt, lead.reminderCompleted)).length
   const upcomingAppointments = [...leads]
-    .filter((lead) => lead.appointmentDate)
+    .filter((lead) => lead.appointmentDate && isSameDay(lead.appointmentDate, new Date()) && isConfirmedAppointment(lead.appointmentStatus))
     .sort((a, b) => new Date(a.appointmentDate).getTime() - new Date(b.appointmentDate).getTime())
     .slice(0, 6)
   const visiblePatients = useMemo(() => {
-    const normalized = deferredQuery.trim().toLowerCase()
-    const filtered = normalized
-      ? leads.filter((lead) => {
-          const haystack = `${lead.name} ${lead.phone} ${lead.waId} ${lead.treatment} ${lead.stageKey}`.toLowerCase()
-          return haystack.includes(normalized)
-        })
-      : leads
+    const normalizedName = deferredNameQuery.trim().toLowerCase()
+    const normalizedPhone = deferredPhoneQuery.trim().toLowerCase()
+    const filtered = leads.filter((lead) => {
+      const matchesName = normalizedName ? lead.name.toLowerCase().includes(normalizedName) : true
+      const phoneHaystack = `${lead.phone} ${lead.waId}`.toLowerCase()
+      const matchesPhone = normalizedPhone ? phoneHaystack.includes(normalizedPhone) : true
+      return matchesName && matchesPhone
+    })
 
     return [...filtered]
       .sort((a, b) => compareDates(a.appointmentDate, b.appointmentDate))
       .slice(0, 12)
-  }, [deferredQuery, leads])
+  }, [deferredNameQuery, deferredPhoneQuery, leads])
 
   return (
     <div className="view-stack">
-      <section className="hero-card crm-hero">
-        <div>
-          <span className="eyebrow">CRM vivo</span>
-          <h1>Citas, valoraciones y seguimiento en un solo tablero.</h1>
-          <p>
-            Esta vista usa el pipeline de <code>crm_pipeline_stages</code> y los pacientes de <code>crm_leads</code>,
-            siempre filtrados por <code>company_key = especialidades-dentales</code>.
-          </p>
-        </div>
-        <div className="hero-actions">
-          <span className="soft-pill">{pipelineSource === 'supabase' ? 'Pipeline de Supabase' : 'Pipeline fallback'}</span>
-          <button className="secondary-button" onClick={onRefresh} disabled={loading}>
-            {loading ? 'Actualizando...' : 'Actualizar CRM'}
-          </button>
-        </div>
-      </section>
-
       <section className="metric-grid">
         <MetricCard label="Pacientes en CRM" value={leads.length} hint="leads de crm_leads" />
         <MetricCard label="Citas de hoy" value={todayAppointments} hint="fecha_cita del dia" />
@@ -90,7 +76,12 @@ export function DashboardView({
               <span className="eyebrow">Agenda</span>
               <h2>Proximas citas</h2>
             </div>
-            <span className="soft-pill">{upcomingAppointments.length} visibles</span>
+            <div className="hero-actions">
+              <span className="soft-pill">{upcomingAppointments.length} visibles</span>
+              <button className="secondary-button" onClick={onRefresh} disabled={loading}>
+                {loading ? 'Actualizando...' : 'Actualizar CRM'}
+              </button>
+            </div>
           </div>
 
           <div className="appointment-list">
@@ -99,18 +90,17 @@ export function DashboardView({
                 <button className="appointment-card" key={lead.id} onClick={() => onOpenLead(lead.id)}>
                   <div>
                     <strong>{lead.name}</strong>
-                    <span>{lead.treatment || 'Valoracion general'}</span>
+                    <span>{lead.treatment || 'Cita confirmada'}</span>
                   </div>
                   <div className="appointment-card-meta">
-                    <strong>{formatDateTime(lead.appointmentDate)}</strong>
-                    <small>{lead.appointmentStatus || labelForStage(stages, lead.stageKey)}</small>
+                    <strong>{formatTime(lead.appointmentDate)}</strong>
                   </div>
                 </button>
               ))
             ) : (
               <EmptyCopy
                 title="No hay citas visibles"
-                text="Cuando Supabase devuelva leads con fecha_cita, apareceran aqui ordenados por horario."
+                text="No hay citas confirmadas para hoy."
               />
             )}
           </div>
@@ -143,17 +133,22 @@ export function DashboardView({
         <div className="section-head compact">
           <div>
             <span className="eyebrow">Pacientes</span>
-            <h2>Busca y abre una ficha</h2>
           </div>
           <span className="soft-pill">{visiblePatients.length} visibles</span>
         </div>
 
-        <div className="patient-browser-bar">
+        <div className="patient-browser-bar patient-browser-bar-compact">
           <input
             className="patient-search-input"
-            value={patientQuery}
-            onChange={(event) => setPatientQuery(event.target.value)}
-            placeholder="Buscar por nombre, telefono, wa_id o tratamiento"
+            value={nameQuery}
+            onChange={(event) => setNameQuery(event.target.value)}
+            placeholder="Nombre"
+          />
+          <input
+            className="patient-search-input"
+            value={phoneQuery}
+            onChange={(event) => setPhoneQuery(event.target.value)}
+            placeholder="Telefono"
           />
         </div>
 
@@ -161,14 +156,10 @@ export function DashboardView({
           {visiblePatients.length > 0 ? (
             visiblePatients.map((lead) => (
               <button className="patient-browser-row" key={lead.id} onClick={() => onOpenLead(lead.id)}>
-                <div className="patient-browser-main">
+              <div className="patient-browser-main">
                   <strong>{lead.name}</strong>
                   <span>{lead.phone || lead.waId || 'Sin telefono'}</span>
-                </div>
-                <div className="patient-browser-meta">
-                  <span>{lead.treatment || 'Sin tratamiento'}</span>
-                  <small>{labelForStage(stages, lead.stageKey)}</small>
-                </div>
+              </div>
                 <div className="patient-browser-date">
                   <strong>{lead.appointmentDate ? formatDateTime(lead.appointmentDate) : 'Sin cita'}</strong>
                 </div>
@@ -311,4 +302,17 @@ function isOverdue(value: string, completed: boolean): boolean {
 
 function money(value: number): string {
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }).format(value)
+}
+
+function isConfirmedAppointment(status: string): boolean {
+  return status.toLowerCase().includes('confirm')
+}
+
+function formatTime(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Hora invalida'
+  return date.toLocaleTimeString('es-MX', {
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }

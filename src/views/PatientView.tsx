@@ -28,22 +28,25 @@ export function PatientView({
   onBackToCrm,
   onSaveDetail,
 }: Props) {
-  const [search, setSearch] = useState('')
+  const [nameSearch, setNameSearch] = useState('')
+  const [phoneSearch, setPhoneSearch] = useState('')
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState('')
-  const deferredSearch = useDeferredValue(search)
+  const deferredNameSearch = useDeferredValue(nameSearch)
+  const deferredPhoneSearch = useDeferredValue(phoneSearch)
   const visiblePatients = useMemo(() => {
-    const normalized = deferredSearch.trim().toLowerCase()
-    const filtered = normalized
-      ? leads.filter((item) => {
-          const haystack = `${item.name} ${item.phone} ${item.waId} ${item.treatment} ${item.stageKey}`.toLowerCase()
-          return haystack.includes(normalized)
-        })
-      : leads
+    const normalizedName = deferredNameSearch.trim().toLowerCase()
+    const normalizedPhone = deferredPhoneSearch.trim().toLowerCase()
+    const filtered = leads.filter((item) => {
+      const matchesName = normalizedName ? item.name.toLowerCase().includes(normalizedName) : true
+      const phoneHaystack = `${item.phone} ${item.waId}`.toLowerCase()
+      const matchesPhone = normalizedPhone ? phoneHaystack.includes(normalizedPhone) : true
+      return matchesName && matchesPhone
+    })
 
     return filtered.slice(0, 10)
-  }, [deferredSearch, leads])
+  }, [deferredNameSearch, deferredPhoneSearch, leads])
 
   const [draft, setDraft] = useState<DentalLeadDetailUpdate>(() => buildDraft(null, null))
 
@@ -57,16 +60,15 @@ export function PatientView({
     return (
       <div className="view-stack">
         <PatientPicker
-          search={search}
+          nameSearch={nameSearch}
+          phoneSearch={phoneSearch}
           visiblePatients={visiblePatients}
-          onSearchChange={setSearch}
+          onNameSearchChange={setNameSearch}
+          onPhoneSearchChange={setPhoneSearch}
           onOpenLead={onOpenLead}
         />
 
         <section className="panel empty-record-panel">
-          <span className="eyebrow">Ficha</span>
-          <h1>Busca y abre un paciente</h1>
-          <p>Desde aqui puedes localizar pacientes por nombre, telefono, wa_id o tratamiento sin volver al tablero.</p>
           <button className="primary-button" onClick={onBackToCrm}>Volver al CRM</button>
         </section>
       </div>
@@ -106,9 +108,11 @@ export function PatientView({
   return (
     <div className="view-stack">
       <PatientPicker
-        search={search}
+        nameSearch={nameSearch}
+        phoneSearch={phoneSearch}
         visiblePatients={visiblePatients}
-        onSearchChange={setSearch}
+        onNameSearchChange={setNameSearch}
+        onPhoneSearchChange={setPhoneSearch}
         onOpenLead={onOpenLead}
       />
 
@@ -116,7 +120,6 @@ export function PatientView({
         <div>
           <span className="eyebrow">Ficha comercial</span>
           <h1>{activeLead.name}</h1>
-          <p>La ficha usa el mismo lead del kanban y conserva la referencia por {activeLead.waId || activeLead.phone || 'paciente'}.</p>
         </div>
         <div className="patient-actions">
           <button className="secondary-button" onClick={onBackToCrm}>Volver al CRM</button>
@@ -296,14 +299,18 @@ export function PatientView({
 }
 
 function PatientPicker({
-  search,
+  nameSearch,
+  phoneSearch,
   visiblePatients,
-  onSearchChange,
+  onNameSearchChange,
+  onPhoneSearchChange,
   onOpenLead,
 }: {
-  search: string
+  nameSearch: string
+  phoneSearch: string
   visiblePatients: CrmLead[]
-  onSearchChange: (value: string) => void
+  onNameSearchChange: (value: string) => void
+  onPhoneSearchChange: (value: string) => void
   onOpenLead: (leadId: string) => void
 }) {
   return (
@@ -311,17 +318,22 @@ function PatientPicker({
       <div className="section-head compact">
         <div>
           <span className="eyebrow">Buscador</span>
-          <h2>Encuentra un paciente desde aqui</h2>
         </div>
         <span className="soft-pill">{visiblePatients.length} visibles</span>
       </div>
 
-      <div className="patient-browser-bar">
+      <div className="patient-browser-bar patient-browser-bar-compact">
         <input
           className="patient-search-input"
-          value={search}
-          onChange={(event) => onSearchChange(event.target.value)}
-          placeholder="Buscar por nombre, telefono, wa_id o tratamiento"
+          value={nameSearch}
+          onChange={(event) => onNameSearchChange(event.target.value)}
+          placeholder="Nombre"
+        />
+        <input
+          className="patient-search-input"
+          value={phoneSearch}
+          onChange={(event) => onPhoneSearchChange(event.target.value)}
+          placeholder="Telefono"
         />
       </div>
 
@@ -333,10 +345,6 @@ function PatientPicker({
                 <strong>{item.name}</strong>
                 <span>{item.phone || item.waId || 'Sin telefono'}</span>
               </div>
-              <div className="patient-browser-meta">
-                <span>{item.treatment || 'Sin tratamiento'}</span>
-                <small>{item.stageKey.replaceAll('_', ' ')}</small>
-              </div>
               <div className="patient-browser-date">
                 <strong>{item.appointmentDate ? formatDateTime(item.appointmentDate) : 'Sin cita'}</strong>
               </div>
@@ -345,7 +353,6 @@ function PatientPicker({
         ) : (
           <div className="empty-state empty-state-compact">
             <h3>No encontramos pacientes</h3>
-            <p>Prueba con otro nombre, telefono, wa_id o deja vacio el buscador para ver la lista.</p>
           </div>
         )}
       </div>

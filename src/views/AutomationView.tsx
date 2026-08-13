@@ -16,7 +16,7 @@ export function AutomationView() {
     setN8nMessage('')
     try {
       await sendToScheduler({ source: 'dental-ops-ui', action: 'health_test', timestamp: new Date().toISOString() })
-      setN8nMessage('El webhook respondió correctamente. El payload final todavía debe ajustarse al flujo real de tu agendador.')
+      setN8nMessage('El webhook respondió correctamente.')
     } catch (error) {
       setN8nMessage(error instanceof Error ? error.message : 'No se pudo probar el webhook.')
     } finally {
@@ -47,7 +47,6 @@ export function AutomationView() {
         <div>
           <span className="eyebrow">Integraciones</span>
           <h1>Automatización</h1>
-          <p>Conectamos lo que ya existe y dejamos preparados los puntos que todavía faltan.</p>
         </div>
       </div>
 
@@ -55,20 +54,20 @@ export function AutomationView() {
         <article className="panel integration-card connected">
           <div className="integration-icon">n8n</div>
           <div>
-            <span className="eyebrow">Agendador existente</span>
+            <span className="eyebrow">Agendador</span>
             <h2>n8n</h2>
             <p>Webhook configurable desde <code>VITE_N8N_SCHEDULER_URL</code>.</p>
           </div>
           <span className={hasSchedulerUrl() ? 'connection good' : 'connection pending'}>{hasSchedulerUrl() ? 'Configurado' : 'Falta URL'}</span>
-          <button className="primary-button" onClick={testScheduler} disabled={loadingN8n || !hasSchedulerUrl()}>{loadingN8n ? 'Probando…' : 'Probar webhook'}</button>
+          <button className="primary-button" onClick={testScheduler} disabled={loadingN8n || !hasSchedulerUrl()}>{loadingN8n ? 'Probando...' : 'Probar webhook'}</button>
           {n8nMessage && <div className="integration-message">{n8nMessage}</div>}
         </article>
 
         <article className="panel integration-card connected">
           <div className="integration-icon">DB</div>
           <div>
-            <span className="eyebrow">Fuente de verdad</span>
-            <h2>Supabase / CRM actual</h2>
+            <span className="eyebrow">Base</span>
+            <h2>Supabase</h2>
             <p>
               Empresa: <code>{supabaseState.companyKey}</code><br />
               Leads: <code>{supabaseState.tables.leads}</code><br />
@@ -80,7 +79,7 @@ export function AutomationView() {
             {supabaseState.configured ? 'Configurado' : 'Faltan credenciales'}
           </span>
           <button className="primary-button" onClick={testDatabase} disabled={loadingSupabase || !supabaseState.configured}>
-            {loadingSupabase ? 'Probando…' : 'Probar Supabase'}
+            {loadingSupabase ? 'Probando...' : 'Probar Supabase'}
           </button>
           {supabaseMessage && <div className="integration-message preline">{supabaseMessage}</div>}
         </article>
@@ -90,7 +89,6 @@ export function AutomationView() {
           <div>
             <span className="eyebrow">Tramo 2</span>
             <h2>Telegram del doctor</h2>
-            <p>Audio → transcripción → extracción → confirmación → ficha.</p>
           </div>
           <span className="connection pending">Pendiente</span>
         </article>
@@ -100,32 +98,25 @@ export function AutomationView() {
           <div>
             <span className="eyebrow">Tramo 3</span>
             <h2>Seguimiento WhatsApp</h2>
-            <p>Día 1, 3 y 6; con escalamiento por falta de respuesta, instrucción o monto.</p>
           </div>
           <span className="connection pending">Pendiente</span>
         </article>
       </section>
 
       <section className="panel architecture-note">
-        <span className="eyebrow">Pipeline confirmado</span>
-        <h2>Columnas actuales de Especialidades Dentales</h2>
+        <span className="eyebrow">Pipeline</span>
+        <h2>Columnas actuales</h2>
         <div className="pipeline-preview">
           {DENTAL_PIPELINE_FALLBACK.map((stage) => (
             <div className="pipeline-stage" key={stage.stage_key}>
               <span className="stage-dot" style={{ backgroundColor: stage.color }} />
               <div>
                 <strong>{stage.position}. {stage.name}</strong>
-                <small>{stage.stage_key} · {stage.movement_mode === 'automatic' ? 'Automática' : 'Manual'}</small>
+                <small>{stage.movement_mode === 'automatic' ? 'Automática' : 'Manual'}</small>
               </div>
             </div>
           ))}
         </div>
-      </section>
-
-      <section className="panel architecture-note">
-        <span className="eyebrow">Regla de arquitectura</span>
-        <h2>No creamos un segundo CRM.</h2>
-        <p>Esta interfaz extiende las tablas existentes. Todas las lecturas de leads quedan acotadas por <code>company_key</code> y el mismo <code>wa_id</code> acompaña al paciente desde el lead hasta el cierre.</p>
       </section>
     </div>
   )

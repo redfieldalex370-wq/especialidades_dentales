@@ -313,12 +313,17 @@ code { background: #edf4f6; padding: 2px 6px; border-radius: 6px; font-size: .88
   display: flex;
 }
 
+.patient-browser-bar-compact {
+  gap: 10px;
+  max-width: 480px;
+}
+
 .patient-search-input {
   width: 100%;
   border: 1px solid #ccdce1;
   background: #f9fcfd;
-  border-radius: 14px;
-  padding: 13px 14px;
+  border-radius: 12px;
+  padding: 9px 12px;
   color: var(--ink);
   outline: none;
 }
@@ -339,14 +344,13 @@ code { background: #edf4f6; padding: 2px 6px; border-radius: 6px; font-size: .88
   background: transparent;
   padding: 16px 4px;
   display: grid;
-  grid-template-columns: 1.1fr .9fr .7fr;
+  grid-template-columns: 1.2fr .7fr;
   gap: 14px;
   align-items: center;
   text-align: left;
 }
 
 .patient-browser-main,
-.patient-browser-meta,
 .patient-browser-date {
   display: flex;
   flex-direction: column;
@@ -354,8 +358,6 @@ code { background: #edf4f6; padding: 2px 6px; border-radius: 6px; font-size: .88
 }
 
 .patient-browser-main span,
-.patient-browser-meta span,
-.patient-browser-meta small,
 .patient-browser-date strong {
   color: var(--muted);
 }
