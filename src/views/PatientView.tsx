@@ -35,7 +35,10 @@ export function PatientView({
   const [saveMessage, setSaveMessage] = useState('')
   const deferredNameSearch = useDeferredValue(nameSearch)
   const deferredPhoneSearch = useDeferredValue(phoneSearch)
+  const hasSearch = deferredNameSearch.trim().length > 0 || deferredPhoneSearch.trim().length > 0
   const visiblePatients = useMemo(() => {
+    if (!hasSearch) return []
+
     const normalizedName = deferredNameSearch.trim().toLowerCase()
     const normalizedPhone = deferredPhoneSearch.trim().toLowerCase()
     const filtered = leads.filter((item) => {
@@ -46,7 +49,7 @@ export function PatientView({
     })
 
     return filtered.slice(0, 10)
-  }, [deferredNameSearch, deferredPhoneSearch, leads])
+  }, [deferredNameSearch, deferredPhoneSearch, hasSearch, leads])
 
   const [draft, setDraft] = useState<DentalLeadDetailUpdate>(() => buildDraft(null, null))
 
@@ -69,7 +72,7 @@ export function PatientView({
         />
 
         <section className="panel empty-record-panel">
-          <button className="primary-button" onClick={onBackToCrm}>Volver al CRM</button>
+          <button className="secondary-button" onClick={onBackToCrm}>Volver al CRM</button>
         </section>
       </div>
     )
@@ -319,7 +322,7 @@ function PatientPicker({
         <div>
           <span className="eyebrow">Buscador</span>
         </div>
-        <span className="soft-pill">{visiblePatients.length} visibles</span>
+        {hasResultsBadge(nameSearch, phoneSearch) && <span className="soft-pill">{visiblePatients.length} visibles</span>}
       </div>
 
       <div className="patient-browser-bar patient-browser-bar-compact">
@@ -338,7 +341,7 @@ function PatientPicker({
       </div>
 
       <div className="patient-browser-list">
-        {visiblePatients.length > 0 ? (
+        {!nameSearch.trim() && !phoneSearch.trim() ? null : visiblePatients.length > 0 ? (
           visiblePatients.map((item) => (
             <button className="patient-browser-row" key={item.id} onClick={() => onOpenLead(item.id)}>
               <div className="patient-browser-main">
@@ -358,6 +361,10 @@ function PatientPicker({
       </div>
     </section>
   )
+}
+
+function hasResultsBadge(nameSearch: string, phoneSearch: string) {
+  return nameSearch.trim().length > 0 || phoneSearch.trim().length > 0
 }
 
 function Field({ label, value }: { label: string; value: string }) {

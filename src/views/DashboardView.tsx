@@ -1,4 +1,4 @@
-import { useDeferredValue, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import type { CrmLead, CrmStage } from '../types'
 
 interface Props {
@@ -26,10 +26,6 @@ export function DashboardView({
   onOpenLead,
   onRefresh,
 }: Props) {
-  const [nameQuery, setNameQuery] = useState('')
-  const [phoneQuery, setPhoneQuery] = useState('')
-  const deferredNameQuery = useDeferredValue(nameQuery)
-  const deferredPhoneQuery = useDeferredValue(phoneQuery)
   const todayAppointments = leads.filter((lead) => isSameDay(lead.appointmentDate, new Date())).length
   const quotedHighValue = leads.filter((lead) => (lead.quotedAmount ?? 0) >= 45000).length
   const overdueFollowups = leads.filter((lead) => isOverdue(lead.reminderAt, lead.reminderCompleted)).length
@@ -37,20 +33,6 @@ export function DashboardView({
     .filter((lead) => lead.appointmentDate && isSameDay(lead.appointmentDate, new Date()) && isConfirmedAppointment(lead.appointmentStatus))
     .sort((a, b) => new Date(a.appointmentDate).getTime() - new Date(b.appointmentDate).getTime())
     .slice(0, 6)
-  const visiblePatients = useMemo(() => {
-    const normalizedName = deferredNameQuery.trim().toLowerCase()
-    const normalizedPhone = deferredPhoneQuery.trim().toLowerCase()
-    const filtered = leads.filter((lead) => {
-      const matchesName = normalizedName ? lead.name.toLowerCase().includes(normalizedName) : true
-      const phoneHaystack = `${lead.phone} ${lead.waId}`.toLowerCase()
-      const matchesPhone = normalizedPhone ? phoneHaystack.includes(normalizedPhone) : true
-      return matchesName && matchesPhone
-    })
-
-    return [...filtered]
-      .sort((a, b) => compareDates(a.appointmentDate, b.appointmentDate))
-      .slice(0, 12)
-  }, [deferredNameQuery, deferredPhoneQuery, leads])
 
   return (
     <div className="view-stack">
@@ -127,51 +109,6 @@ export function DashboardView({
             ))}
           </div>
         </article>
-      </section>
-
-      <section className="panel patient-browser-panel">
-        <div className="section-head compact">
-          <div>
-            <span className="eyebrow">Pacientes</span>
-          </div>
-          <span className="soft-pill">{visiblePatients.length} visibles</span>
-        </div>
-
-        <div className="patient-browser-bar patient-browser-bar-compact">
-          <input
-            className="patient-search-input"
-            value={nameQuery}
-            onChange={(event) => setNameQuery(event.target.value)}
-            placeholder="Nombre"
-          />
-          <input
-            className="patient-search-input"
-            value={phoneQuery}
-            onChange={(event) => setPhoneQuery(event.target.value)}
-            placeholder="Telefono"
-          />
-        </div>
-
-        <div className="patient-browser-list">
-          {visiblePatients.length > 0 ? (
-            visiblePatients.map((lead) => (
-              <button className="patient-browser-row" key={lead.id} onClick={() => onOpenLead(lead.id)}>
-              <div className="patient-browser-main">
-                  <strong>{lead.name}</strong>
-                  <span>{lead.phone || lead.waId || 'Sin telefono'}</span>
-              </div>
-                <div className="patient-browser-date">
-                  <strong>{lead.appointmentDate ? formatDateTime(lead.appointmentDate) : 'Sin cita'}</strong>
-                </div>
-              </button>
-            ))
-          ) : (
-            <EmptyCopy
-              title="No encontramos pacientes"
-              text="Prueba con otro nombre, telefono, wa_id o deja vacio el buscador para ver la lista."
-            />
-          )}
-        </div>
       </section>
 
       <section className="panel crm-board-panel">
