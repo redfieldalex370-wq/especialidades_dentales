@@ -11,7 +11,12 @@ import type {
   TraceabilityEvent,
 } from '../types'
 
-export const CRM_COMPANY_KEY = 'especialidades-dentales' as const
+export const AVAILABLE_COMPANIES = [
+  { key: 'especialidades-dentales', label: 'Especialidades Dentales' },
+  { key: 'dr-woolrich', label: 'Dr Woolrich' },
+] as const
+export type CrmCompanyKey = (typeof AVAILABLE_COMPANIES)[number]['key']
+export const DEFAULT_CRM_COMPANY_KEY: CrmCompanyKey = 'especialidades-dentales'
 
 export const CRM_TABLES = {
   leads: 'crm_leads',
@@ -30,7 +35,7 @@ export type MovementMode = 'automatic' | 'manual'
  */
 export const DENTAL_PIPELINE_FALLBACK: CrmStage[] = [
   {
-    company_key: CRM_COMPANY_KEY,
+    company_key: DEFAULT_CRM_COMPANY_KEY,
     stage_key: 'contactos_nuevos',
     name: 'Contactos nuevos',
     color: '#64748b',
@@ -38,7 +43,7 @@ export const DENTAL_PIPELINE_FALLBACK: CrmStage[] = [
     position: 1,
   },
   {
-    company_key: CRM_COMPANY_KEY,
+    company_key: DEFAULT_CRM_COMPANY_KEY,
     stage_key: 'preguntaron_fechas',
     name: 'Preguntaron por fechas',
     color: '#3b82f6',
@@ -46,7 +51,7 @@ export const DENTAL_PIPELINE_FALLBACK: CrmStage[] = [
     position: 2,
   },
   {
-    company_key: CRM_COMPANY_KEY,
+    company_key: DEFAULT_CRM_COMPANY_KEY,
     stage_key: 'valoracion_agendada',
     name: 'Valoración agendada',
     color: '#10b981',
@@ -54,7 +59,7 @@ export const DENTAL_PIPELINE_FALLBACK: CrmStage[] = [
     position: 3,
   },
   {
-    company_key: CRM_COMPANY_KEY,
+    company_key: DEFAULT_CRM_COMPANY_KEY,
     stage_key: 'asistio_valoracion',
     name: 'Asistió a valoración',
     color: '#f59e0b',
@@ -62,7 +67,7 @@ export const DENTAL_PIPELINE_FALLBACK: CrmStage[] = [
     position: 4,
   },
   {
-    company_key: CRM_COMPANY_KEY,
+    company_key: DEFAULT_CRM_COMPANY_KEY,
     stage_key: 'canalizado_especialista',
     name: 'Canalizado con especialista',
     color: '#8b5cf6',
@@ -70,7 +75,7 @@ export const DENTAL_PIPELINE_FALLBACK: CrmStage[] = [
     position: 5,
   },
   {
-    company_key: CRM_COMPANY_KEY,
+    company_key: DEFAULT_CRM_COMPANY_KEY,
     stage_key: 'tratamiento_agendado',
     name: 'Tratamiento agendado',
     color: '#06b6d4',
@@ -78,7 +83,7 @@ export const DENTAL_PIPELINE_FALLBACK: CrmStage[] = [
     position: 6,
   },
   {
-    company_key: CRM_COMPANY_KEY,
+    company_key: DEFAULT_CRM_COMPANY_KEY,
     stage_key: 'cita_cancelada',
     name: 'Cita cancelada / seguimiento',
     color: '#ef4444',
@@ -92,6 +97,12 @@ export type RawCompanyMember = Record<string, unknown>
 type RawClinicalRecord = Record<string, unknown>
 type RawCommercialCase = Record<string, unknown>
 type RawTraceabilityEvent = Record<string, unknown>
+
+function resolveCompanyKey(value: string | undefined): CrmCompanyKey {
+  return AVAILABLE_COMPANIES.some((company) => company.key === value)
+    ? (value as CrmCompanyKey)
+    : DEFAULT_CRM_COMPANY_KEY
+}
 
 function safeObject(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
@@ -221,7 +232,7 @@ export function mapDentalLead(row: RawLead): CrmLead {
 
   return {
     id: stringValue(row.id) || waId || crypto.randomUUID(),
-    companyKey: stringValue(row.company_key) || CRM_COMPANY_KEY,
+    companyKey: resolveCompanyKey(stringValue(row.company_key)),
     waId,
     subscriberId: stringValue(row.subscriber_id, row.wa_id, phone),
     name: stringValue(row.nombre_paciente, raw.nombre_completo, raw.nombre_contacto) || placeholderName(row, raw),
@@ -253,13 +264,13 @@ export function mapDentalLead(row: RawLead): CrmLead {
  * Busca un paciente en el CRM vigente. company_key forma parte del filtro
  * para que un mismo wa_id de otra empresa nunca se mezcle con esta clínica.
  */
-export async function findLeadByWaId(waId: string): Promise<RawLead | null> {
+export async function findLeadByWaId(waId: string, companyKey: CrmCompanyKey = DEFAULT_CRM_COMPANY_KEY): Promise<RawLead | null> {
   const client = requireSupabase()
 
   const { data, error } = await client
     .from(CRM_TABLES.leads)
     .select('*')
-    .eq('company_key', CRM_COMPANY_KEY)
+    .eq('company_key', companyKey)
     .eq('wa_id', waId)
     .maybeSingle()
 
@@ -271,21 +282,21 @@ export async function findLeadByWaId(waId: string): Promise<RawLead | null> {
  * Recupera leads de Especialidades Dentales sin asumir todavía el resto de
  * columnas de crm_leads. El mapeo tipado se hará cuando tengamos su esquema vivo.
  */
-export async function listDentalLeads(limit = 100): Promise<RawLead[]> {
+export async function listDentalLeads(limit = 100, companyKey: CrmCompanyKey = DEFAULT_CRM_COMPANY_KEY): Promise<RawLead[]> {
   const client = requireSupabase()
 
   const { data, error } = await client
     .from(CRM_TABLES.leads)
     .select('*')
-    .eq('company_key', CRM_COMPANY_KEY)
+    .eq('company_key', companyKey)
     .limit(limit)
 
   if (error) throw error
   return data ?? []
 }
 
-export async function listDentalCrmLeads(limit = 100): Promise<CrmLead[]> {
-  const rows = await listDentalLeads(limit)
+export async function listDentalCrmLeads(limit = 100, companyKey: CrmCompanyKey = DEFAULT_CRM_COMPANY_KEY): Promise<CrmLead[]> {
+  const rows = await listDentalLeads(limit, companyKey)
   return rows.map(mapDentalLead)
 }
 
@@ -293,13 +304,13 @@ export async function listDentalCrmLeads(limit = 100): Promise<CrmLead[]> {
  * Recupera miembros/permisos de la empresa sin asumir todavía el esquema
  * interno de crm_company_members.
  */
-export async function listDentalCompanyMembers(limit = 100): Promise<RawCompanyMember[]> {
+export async function listDentalCompanyMembers(limit = 100, companyKey: CrmCompanyKey = DEFAULT_CRM_COMPANY_KEY): Promise<RawCompanyMember[]> {
   const client = requireSupabase()
 
   const { data, error } = await client
     .from(CRM_TABLES.companyMembers)
     .select('*')
-    .eq('company_key', CRM_COMPANY_KEY)
+    .eq('company_key', companyKey)
     .limit(limit)
 
   if (error) throw error
@@ -310,7 +321,7 @@ export async function listDentalCompanyMembers(limit = 100): Promise<RawCompanyM
  * Lee las columnas reales del kanban desde Supabase. Si la consulta falla,
  * conserva la lista confirmada como fallback para que la UI no pierda estructura.
  */
-export async function getDentalPipelineStages(): Promise<{
+export async function getDentalPipelineStages(companyKey: CrmCompanyKey = DEFAULT_CRM_COMPANY_KEY): Promise<{
   stages: CrmStage[]
   source: 'supabase' | 'fallback'
   warning?: string
@@ -320,7 +331,7 @@ export async function getDentalPipelineStages(): Promise<{
   const { data, error } = await client
     .from(CRM_TABLES.pipelineStages)
     .select('company_key, stage_key, name, color, movement_mode, position')
-    .eq('company_key', CRM_COMPANY_KEY)
+    .eq('company_key', companyKey)
     .order('position', { ascending: true })
 
   if (error) {
@@ -349,6 +360,7 @@ export async function updateDentalLeadStage(params: {
   leadId: string
   stageKey: string
   movementMode: MovementMode
+  companyKey?: CrmCompanyKey
 }): Promise<CrmLead> {
   const client = requireSupabase()
   const { data, error } = await client
@@ -359,7 +371,7 @@ export async function updateDentalLeadStage(params: {
       stage_origin: 'admin',
     })
     .eq('id', params.leadId)
-    .eq('company_key', CRM_COMPANY_KEY)
+    .eq('company_key', params.companyKey ?? DEFAULT_CRM_COMPANY_KEY)
     .select('*')
     .single()
 
@@ -367,7 +379,7 @@ export async function updateDentalLeadStage(params: {
   return mapDentalLead(data as RawLead)
 }
 
-export async function getDentalLeadDetail(leadId: string): Promise<CrmLeadDetail> {
+export async function getDentalLeadDetail(leadId: string, companyKey: CrmCompanyKey = DEFAULT_CRM_COMPANY_KEY): Promise<CrmLeadDetail> {
   const client = requireSupabase()
 
   const [clinicalResult, commercialResult, traceabilityResult] = await Promise.all([
@@ -375,19 +387,19 @@ export async function getDentalLeadDetail(leadId: string): Promise<CrmLeadDetail
       .from(CRM_TABLES.clinicalRecords)
       .select('*')
       .eq('lead_id', leadId)
-      .eq('company_key', CRM_COMPANY_KEY)
+      .eq('company_key', companyKey)
       .maybeSingle(),
     client
       .from(CRM_TABLES.commercialCases)
       .select('*')
       .eq('lead_id', leadId)
-      .eq('company_key', CRM_COMPANY_KEY)
+      .eq('company_key', companyKey)
       .maybeSingle(),
     client
       .from(CRM_TABLES.traceability)
       .select('*')
       .eq('lead_id', leadId)
-      .eq('company_key', CRM_COMPANY_KEY)
+      .eq('company_key', companyKey)
       .order('timestamp', { ascending: false }),
   ])
 
@@ -407,7 +419,7 @@ export async function updateDentalLeadDetail(lead: CrmLead, input: DentalLeadDet
 
   const clinicalPayload = {
     lead_id: lead.id,
-    company_key: CRM_COMPANY_KEY,
+    company_key: resolveCompanyKey(lead.companyKey),
     wa_id: lead.waId || lead.phone || null,
     motivo_consulta: input.clinicalRecord.motivoConsulta || null,
     diagnostico: input.clinicalRecord.diagnostico || null,
@@ -420,7 +432,7 @@ export async function updateDentalLeadDetail(lead: CrmLead, input: DentalLeadDet
 
   const commercialPayload = {
     lead_id: lead.id,
-    company_key: CRM_COMPANY_KEY,
+    company_key: resolveCompanyKey(lead.companyKey),
     wa_id: lead.waId || lead.phone || null,
     costo_cotizado: input.commercialCase.costoCotizado,
     promocion_aplicada: input.commercialCase.promocionAplicada || null,
@@ -443,5 +455,5 @@ export async function updateDentalLeadDetail(lead: CrmLead, input: DentalLeadDet
   if (clinicalResult.error) throw clinicalResult.error
   if (commercialResult.error) throw commercialResult.error
 
-  return getDentalLeadDetail(lead.id)
+  return getDentalLeadDetail(lead.id, resolveCompanyKey(lead.companyKey))
 }

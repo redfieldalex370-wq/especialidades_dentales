@@ -7,7 +7,10 @@ import { PatientView } from './views/PatientView'
 import { WaitingRoomView } from './views/WaitingRoomView'
 import type { CrmLead, CrmLeadDetail, CrmStage, DentalLeadDetailUpdate, Patient } from './types'
 import {
+  AVAILABLE_COMPANIES,
+  type CrmCompanyKey,
   DENTAL_PIPELINE_FALLBACK,
+  DEFAULT_CRM_COMPANY_KEY,
   getDentalLeadDetail,
   getDentalPipelineStages,
   listDentalCrmLeads,
@@ -17,6 +20,7 @@ import {
 
 export default function App() {
   const [view, setView] = useState<ViewKey>('dashboard')
+  const [companyKey, setCompanyKey] = useState<CrmCompanyKey>(DEFAULT_CRM_COMPANY_KEY)
   const [patients, setPatients] = useState<Patient[]>(initialPatients)
   const [crmLeads, setCrmLeads] = useState<CrmLead[]>([])
   const [crmStages, setCrmStages] = useState<CrmStage[]>(DENTAL_PIPELINE_FALLBACK)
@@ -35,7 +39,7 @@ export default function App() {
     setLeadDetailError('')
 
     try {
-      const detail = await getDentalLeadDetail(leadId)
+      const detail = await getDentalLeadDetail(leadId, companyKey)
       setLeadDetail(detail)
     } catch (error) {
       setLeadDetail(null)
@@ -50,7 +54,7 @@ export default function App() {
     setCrmError('')
 
     try {
-      const [leadRows, pipeline] = await Promise.all([listDentalCrmLeads(200), getDentalPipelineStages()])
+      const [leadRows, pipeline] = await Promise.all([listDentalCrmLeads(200, companyKey), getDentalPipelineStages(companyKey)])
       setCrmLeads(leadRows)
       setCrmStages(pipeline.stages)
       setPipelineSource(pipeline.source)
@@ -66,7 +70,7 @@ export default function App() {
 
   useEffect(() => {
     void loadCrm()
-  }, [])
+  }, [companyKey])
 
   const selectedLead = useMemo(
     () => crmLeads.find((lead) => lead.id === selectedLeadId) ?? null,
@@ -87,7 +91,7 @@ export default function App() {
       setLeadDetailError('')
 
       try {
-        const detail = await getDentalLeadDetail(selectedLeadId)
+        const detail = await getDentalLeadDetail(selectedLeadId, companyKey)
         if (!cancelled) setLeadDetail(detail)
       } catch (error) {
         if (!cancelled) {
@@ -103,7 +107,7 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [selectedLeadId])
+  }, [selectedLeadId, companyKey])
 
   async function handleSaveLeadDetail(leadId: string, input: DentalLeadDetailUpdate) {
     const lead = crmLeads.find((item) => item.id === leadId)
@@ -135,6 +139,7 @@ export default function App() {
         leadId,
         stageKey,
         movementMode: stage.movement_mode,
+        companyKey,
       })
       setCrmLeads((current) => current.map((item) => (item.id === leadId ? saved : item)))
       setCrmError('')
@@ -154,6 +159,7 @@ export default function App() {
   const topbarLabel = crmLoading
     ? 'Sincronizando'
     : `${crmLeads.length} pacientes en CRM`
+  const activeCompany = AVAILABLE_COMPANIES.find((item) => item.key === companyKey)
 
   return (
     <div className="app-shell">
@@ -161,10 +167,17 @@ export default function App() {
       <main className="main-area">
         <header className="topbar">
           <div>
-            <span className="topbar-kicker">Especialidades Dentales</span>
+            <span className="topbar-kicker">{activeCompany?.label ?? companyKey}</span>
             <strong>CRM de citas y seguimiento</strong>
           </div>
           <div className="topbar-actions">
+            <select className="company-select" value={companyKey} onChange={(event) => { setSelectedLeadId(''); setCompanyKey(event.target.value as CrmCompanyKey) }}>
+              {AVAILABLE_COMPANIES.map((company) => (
+                <option value={company.key} key={company.key}>
+                  {company.label}
+                </option>
+              ))}
+            </select>
             <button className="date-chip date-chip-button" onClick={() => void loadCrm()} disabled={crmLoading}>
               {topbarLabel}
             </button>
