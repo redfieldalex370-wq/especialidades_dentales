@@ -1,4 +1,4 @@
-import { FormEvent, useDeferredValue, useMemo, useState } from 'react'
+import { FormEvent, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import type { CalendarAppointment, CrmLead, KioskFlow, KioskLeadStatus } from '../types'
 
 interface Props {
@@ -10,6 +10,7 @@ interface Props {
   onOpenLead: (leadId: string) => void
   onRegisterWalkIn: (name: string, phone: string) => Promise<CrmLead>
   onUpdateLeadStatus: (leadId: string, kioskStatus: KioskLeadStatus, kioskFlow?: KioskFlow) => Promise<void>
+  onAutoCallNext: (leadId: string) => Promise<void>
 }
 
 export function WaitingRoomView({
@@ -21,6 +22,7 @@ export function WaitingRoomView({
   onOpenLead,
   onRegisterWalkIn,
   onUpdateLeadStatus,
+  onAutoCallNext,
 }: Props) {
   const [mode, setMode] = useState<KioskFlow>('con_cita')
   const [nameSearch, setNameSearch] = useState('')
@@ -30,6 +32,8 @@ export function WaitingRoomView({
   const [actionMessage, setActionMessage] = useState('')
   const [busyLeadId, setBusyLeadId] = useState('')
   const [submittingWalkIn, setSubmittingWalkIn] = useState(false)
+  const [now, setNow] = useState(() => Date.now())
+  const autoCallingLeadIdRef = useRef('')
 
   const deferredNameSearch = useDeferredValue(nameSearch)
   const deferredPhoneSearch = useDeferredValue(phoneSearch)
@@ -91,6 +95,8 @@ export function WaitingRoomView({
 
   const arrivedTodayCount = waitingPatients.length + (currentPatient ? 1 : 0) + finishedPatients.length
   const pendingTodayCount = todayScheduledLeads.filter((lead) => lead.kioskStatus === 'pendiente').length
+  const currentConsultationMinutes = currentPatient ? minutesSince(currentPatient.arrivalAt, now) : 0
+  const hasConsultationDelay = currentConsultationMinutes >= 30
 
   const visiblePatients = useMemo(() => {
     const normalizedName = deferredNameSearch.trim().toLowerCase()
@@ -163,6 +169,37 @@ export function WaitingRoomView({
     }
   }
 
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
+    if (currentPatient || waitingPatients.length === 0) {
+      autoCallingLeadIdRef.current = ''
+      return
+    }
+
+    const nextPatient = waitingPatients[0]
+    if (!nextPatient || autoCallingLeadIdRef.current === nextPatient.id) return
+
+    autoCallingLeadIdRef.current = nextPatient.id
+    setBusyLeadId(nextPatient.id)
+    setActionMessage('')
+
+    void onAutoCallNext(nextPatient.id)
+      .then(() => {
+        setActionMessage(`Se llamó automáticamente a ${nextPatient.name}.`)
+      })
+      .catch((error) => {
+        autoCallingLeadIdRef.current = ''
+        setActionMessage(error instanceof Error ? error.message : 'No se pudo llamar al siguiente paciente.')
+      })
+      .finally(() => {
+        setBusyLeadId('')
+      })
+  }, [currentPatient, waitingPatients, onAutoCallNext])
+
   return (
     <div className="view-stack">
       <section className="crm-dashboard-grid waiting-room-grid">
@@ -187,6 +224,49 @@ export function WaitingRoomView({
           </div>
         </article>
       </section>
+
+      {currentPatient && (
+        <section className={`panel waiting-current-card ${hasConsultationDelay ? 'alert-panel' : ''}`}>
+          <div className="section-head compact">
+            <div>
+              <span className="eyebrow">Consulta actual</span>
+              <h2>{currentPatient.name}</h2>
+            </div>
+            <span className={hasConsultationDelay ? 'soft-pill soft-pill-alert' : 'soft-pill'}>
+              {hasConsultationDelay ? `Sin cierre hace ${currentConsultationMinutes} min` : 'En consulta'}
+            </span>
+          </div>
+
+          {hasConsultationDelay && (
+            <div className="waiting-alert-banner">
+              Sin cierre hace {currentConsultationMinutes} min. Revisa si ya terminó la valoración.
+            </div>
+          )}
+
+          <div className="appointment-list">
+            <article className="appointment-card appointment-card-static appointment-card-match-yes">
+              <div>
+                <strong>{currentPatient.name}</strong>
+                <span>{currentPatient.phone || currentPatient.waId || 'Sin teléfono'}</span>
+                <small>
+                  Llegó {currentPatient.arrivalAt ? formatTime(currentPatient.arrivalAt) : 'sin hora'} ·{' '}
+                  {currentPatient.appointmentDate ? `cita ${formatTime(currentPatient.appointmentDate)}` : 'sin cita calendar'}
+                </small>
+              </div>
+              <div className="patient-browser-actions">
+                <button className="secondary-button" onClick={() => onOpenLead(currentPatient.id)}>Ficha</button>
+                <button
+                  className="primary-button"
+                  onClick={() => void handleStatusChange(currentPatient.id, 'finalizada')}
+                  disabled={busyLeadId === currentPatient.id}
+                >
+                  Finalizar
+                </button>
+              </div>
+            </article>
+          </div>
+        </section>
+      )}
 
       <section className="panel kiosk-entry-panel">
         <div className="section-head compact">
@@ -479,4 +559,10 @@ function labelForAppointmentState(status: KioskLeadStatus): string {
 
 function findLeadById(leads: CrmLead[], leadId: string): CrmLead | null {
   return leads.find((lead) => lead.id === leadId) ?? null
+}
+
+function minutesSince(value: string, now: number): number {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 0
+  return Math.max(0, Math.floor((now - date.getTime()) / 60_000))
 }

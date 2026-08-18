@@ -179,6 +179,30 @@ export interface CalendarAppointment {
   source: 'google_calendar'
 }
 
+export type EstadoVinculacionValoracion =
+  | 'pendiente_vincular'
+  | 'vinculada_revision'
+  | 'vinculada'
+
+export interface ValoracionPaciente {
+  id: string
+  companyKey: string
+  usuarioId: string
+  nombrePaciente: string
+  telefonoPaciente: string
+  fechaValoracion: string
+  motivoConsulta: string
+  diagnostico: string
+  tratamientoRecomendado: string
+  observaciones: string
+  textoOriginal: string
+  transcripcion: string
+  extracto: string
+  estadoVinculacion: EstadoVinculacionValoracion
+  createdAt: string
+  updatedAt: string
+}
+
 export type ClinicalRecord = FichaClinica
 export type CommercialCase = CasoComercial
 export type TraceabilityEvent = TrazabilidadEvento

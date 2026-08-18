@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useState } from 'react'
 import type { CalendarAppointment, CrmLead, CrmStage } from '../types'
 
 interface Props {
@@ -32,14 +32,28 @@ export function DashboardView({
   onOpenLead,
   onRefresh,
 }: Props) {
-  const now = new Date()
+  const [nowMs, setNowMs] = useState(() => Date.now())
+  const now = new Date(nowMs)
   const todayAppointments = calendarAppointments.filter((item) => isSameDay(item.start, now) && isActiveAppointment(item.status)).length
   const quotedHighValue = leads.filter((lead) => (lead.quotedAmount ?? 0) >= 45000).length
   const overdueFollowups = leads.filter((lead) => isOverdue(lead.reminderAt, lead.reminderCompleted)).length
+  const staleConsultations = leads
+    .filter((lead) => lead.kioskStatus === 'en_consulta')
+    .map((lead) => ({
+      lead,
+      minutes: minutesSince(lead.arrivalAt, nowMs),
+    }))
+    .filter((item) => item.minutes >= 30)
+    .sort((left, right) => right.minutes - left.minutes)
   const upcomingAppointments = [...calendarAppointments]
     .filter((item) => isActiveAppointment(item.status) && isUpcomingOrToday(item.start, now))
     .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
     .slice(0, 6)
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 60_000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   return (
     <div className="view-stack">
@@ -49,6 +63,16 @@ export function DashboardView({
         <MetricCard label="Seguimientos vencidos" value={overdueFollowups} hint="recordatorio pendiente" />
         <MetricCard label="Casos > $45,000" value={quotedHighValue} hint="umbral de escalamiento" />
       </section>
+
+      {staleConsultations.length > 0 && (
+        <section className="panel warning-panel alert-panel">
+          <span className="eyebrow">Consulta sin cierre</span>
+          <h2>{staleConsultations[0].lead.name} lleva {staleConsultations[0].minutes} min en consulta</h2>
+          <p>
+            Hay {staleConsultations.length} {staleConsultations.length === 1 ? 'paciente' : 'pacientes'} sin cierre visible en este momento.
+          </p>
+        </section>
+      )}
 
       {(error || pipelineWarning || calendarError) && (
         <section className="panel warning-panel">
@@ -279,4 +303,10 @@ function formatTime(value: string): string {
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+function minutesSince(value: string, now: number): number {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 0
+  return Math.max(0, Math.floor((now - date.getTime()) / 60_000))
 }

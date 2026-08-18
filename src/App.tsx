@@ -5,11 +5,13 @@ import { DashboardView } from './views/DashboardView'
 import { PatientView } from './views/PatientView'
 import { WaitingRoomView } from './views/WaitingRoomView'
 import type { CalendarAppointment, CrmLead, CrmLeadDetail, CrmStage, DentalLeadDetailUpdate, KioskFlow, KioskLeadStatus } from './types'
+import { supabase } from './lib/supabase'
 import {
   createDentalWalkInLead,
   DENTAL_PIPELINE_FALLBACK,
   getDentalPipelineStages,
   listDentalCrmLeads,
+  logTraceabilityEvent,
   updateDentalLeadKioskState,
   updateDentalLeadStage,
 } from './services/crm'
@@ -116,6 +118,34 @@ export default function App() {
     return () => window.clearInterval(timer)
   }, [selectedLeadId, crmLeads])
 
+  useEffect(() => {
+    if (!supabase) return
+    const realtimeClient = supabase
+
+    const channel = realtimeClient
+      .channel('crm-leads-realtime-especialidades-dentales')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'crm_leads',
+          filter: `company_key=eq.${companyKey}`,
+        },
+        () => {
+          void loadCrm()
+          if (selectedLeadId) {
+            void loadLeadDetail(selectedLeadId)
+          }
+        },
+      )
+      .subscribe()
+
+    return () => {
+      void realtimeClient.removeChannel(channel)
+    }
+  }, [selectedLeadId])
+
   const selectedLead = useMemo(
     () => crmLeads.find((lead) => lead.id === selectedLeadId) ?? null,
     [crmLeads, selectedLeadId],
@@ -214,6 +244,31 @@ export default function App() {
     }
   }
 
+  async function handleAutoCallNext(leadId: string) {
+    const lead = crmLeads.find((item) => item.id === leadId)
+    if (!lead) throw new Error('No encontramos al paciente que sigue en la cola.')
+
+    const saved = await updateDentalLeadKioskState({
+      lead,
+      companyKey,
+      kioskStatus: 'en_consulta',
+      kioskFlow: lead.kioskFlow,
+      arrivalAt: lead.arrivalAt || new Date().toISOString(),
+    })
+
+    setCrmLeads((current) => current.map((item) => (item.id === leadId ? saved : item)))
+
+    await logTraceabilityEvent({
+      lead: saved,
+      tipoEvento: 'llamado automatico',
+      responsable: 'sistema',
+    })
+
+    if (selectedLeadId === leadId) {
+      await loadLeadDetail(leadId)
+    }
+  }
+
   async function handleRegisterWalkIn(name: string, phone: string) {
     const digits = phone.replace(/\D/g, '')
     const existing = crmLeads.find((item) => {
@@ -294,6 +349,7 @@ export default function App() {
               onOpenLead={openLead}
               onRegisterWalkIn={handleRegisterWalkIn}
               onUpdateLeadStatus={handleUpdateKioskStatus}
+              onAutoCallNext={handleAutoCallNext}
             />
           )}
           {view === 'patient' && (
@@ -308,7 +364,7 @@ export default function App() {
               onUpdateKioskStatus={handleUpdateKioskStatus}
             />
           )}
-          {view === 'automation' && <AutomationView />}
+          {view === 'automation' && <AutomationView leads={crmLeads} onOpenLead={openLead} />}
         </div>
       </main>
     </div>
