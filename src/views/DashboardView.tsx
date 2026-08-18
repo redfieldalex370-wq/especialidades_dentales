@@ -77,7 +77,7 @@ export function DashboardView({
             {upcomingAppointments.length > 0 ? (
               upcomingAppointments.map((appointment) => (
                 <button
-                  className="appointment-card"
+                  className={`appointment-card appointment-card-match-${appointment.matchedLeadId ? 'yes' : 'no'}`}
                   key={appointment.id}
                   onClick={() => appointment.matchedLeadId && onOpenLead(appointment.matchedLeadId)}
                   disabled={!appointment.matchedLeadId}
@@ -88,7 +88,6 @@ export function DashboardView({
                   </div>
                   <div className="appointment-card-meta">
                     <strong>{formatDateTime(appointment.start)}</strong>
-                    <span>{appointment.matchedLeadId ? 'Ficha disponible' : 'Solo Calendar'}</span>
                   </div>
                 </button>
               ))

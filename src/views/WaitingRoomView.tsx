@@ -331,7 +331,7 @@ export function WaitingRoomView({
             {todayAppointments.length > 0 ? (
               todayAppointments.map((appointment) => (
                 <button
-                  className="appointment-card"
+                  className={`appointment-card appointment-card-match-${appointment.matchedLeadId ? 'yes' : 'no'}`}
                   key={appointment.id}
                   onClick={() => appointment.matchedLeadId && onOpenLead(appointment.matchedLeadId)}
                   disabled={!appointment.matchedLeadId}
@@ -342,7 +342,6 @@ export function WaitingRoomView({
                   </div>
                   <div className="appointment-card-meta">
                     <strong>{formatTime(appointment.start)}</strong>
-                    <span>{appointment.matchedLeadId ? 'Ficha disponible' : 'Solo Calendar'}</span>
                   </div>
                 </button>
               ))

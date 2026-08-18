@@ -282,11 +282,13 @@ code { background: #edf4f6; padding: 2px 6px; border-radius: 6px; font-size: .88
   background: #f7fbfc;
   border-radius: 16px;
   padding: 16px;
+  border-left: 4px solid #d9534f;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   text-align: left;
+  color: var(--ink);
 }
 
 .appointment-card strong,
@@ -297,11 +299,19 @@ code { background: #edf4f6; padding: 2px 6px; border-radius: 6px; font-size: .88
 
 .appointment-card span,
 .appointment-card small {
-  color: var(--muted);
+  color: var(--ink);
 }
 
 .appointment-card-meta {
   text-align: right;
+}
+
+.appointment-card-match-yes {
+  border-left-color: #10b981;
+}
+
+.appointment-card-match-no {
+  border-left-color: #ef4444;
 }
 
 .patient-browser-panel {
