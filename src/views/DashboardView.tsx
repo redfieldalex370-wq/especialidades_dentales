@@ -79,8 +79,9 @@ export function DashboardView({
                 <button
                   className={`appointment-card appointment-card-match-${appointment.matchedLeadId ? 'yes' : 'no'}`}
                   key={appointment.id}
-                  onClick={() => appointment.matchedLeadId && onOpenLead(appointment.matchedLeadId)}
-                  disabled={!appointment.matchedLeadId}
+                  onClick={() => {
+                    if (appointment.matchedLeadId) onOpenLead(appointment.matchedLeadId)
+                  }}
                 >
                   <div>
                     <strong>{appointment.patientName || appointment.title}</strong>
