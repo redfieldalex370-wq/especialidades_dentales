@@ -59,6 +59,7 @@ function mapCalendarEvent(item: GoogleCalendarEvent, leads: CrmLead[]): Calendar
   const end = item.end?.dateTime ?? item.end?.date ?? start
   const title = item.summary?.trim() ?? 'Cita'
   if (!start) return null
+  if (!isAllowedDentalAppointment(title, item.description?.trim() ?? '')) return null
 
   const patientName = extractPatientName(title)
   const matchedLead = findMatchingLead(patientName, leads)
@@ -105,4 +106,27 @@ function findMatchingLead(patientName: string, leads: CrmLead[]): CrmLead | null
     const leadName = normalizeText(lead.name)
     return leadName === target || leadName.includes(target) || target.includes(leadName)
   }) ?? null
+}
+
+function isAllowedDentalAppointment(title: string, description: string): boolean {
+  const haystack = normalizeText(`${title} ${description}`)
+
+  const allowedKeywords = ['valoracion', 'limpieza']
+  const blockedKeywords = [
+    'bloqueado',
+    'bloqueo',
+    'calendario bloqueado',
+    'no disponible',
+    'ocupado',
+    'vacaciones',
+    'descanso',
+    'comida',
+    'junta',
+    'reunion',
+  ]
+
+  const hasAllowedKeyword = allowedKeywords.some((keyword) => haystack.includes(keyword))
+  const hasBlockedKeyword = blockedKeywords.some((keyword) => haystack.includes(keyword))
+
+  return hasAllowedKeyword && !hasBlockedKeyword
 }
