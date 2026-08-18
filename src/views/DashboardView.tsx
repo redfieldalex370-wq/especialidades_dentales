@@ -26,11 +26,12 @@ export function DashboardView({
   onOpenLead,
   onRefresh,
 }: Props) {
-  const todayAppointments = leads.filter((lead) => isSameDay(lead.appointmentDate, new Date())).length
+  const now = new Date()
+  const todayAppointments = leads.filter((lead) => lead.appointmentDate && isSameDay(lead.appointmentDate, now) && isActiveAppointment(lead.appointmentStatus)).length
   const quotedHighValue = leads.filter((lead) => (lead.quotedAmount ?? 0) >= 45000).length
   const overdueFollowups = leads.filter((lead) => isOverdue(lead.reminderAt, lead.reminderCompleted)).length
   const upcomingAppointments = [...leads]
-    .filter((lead) => lead.appointmentDate && isSameDay(lead.appointmentDate, new Date()) && isActiveAppointment(lead.appointmentStatus))
+    .filter((lead) => lead.appointmentDate && isActiveAppointment(lead.appointmentStatus) && isUpcomingOrToday(lead.appointmentDate, now))
     .sort((a, b) => new Date(a.appointmentDate).getTime() - new Date(b.appointmentDate).getTime())
     .slice(0, 6)
 
@@ -82,7 +83,7 @@ export function DashboardView({
             ) : (
               <EmptyCopy
                 title="No hay citas visibles"
-                text="No hay citas confirmadas para hoy."
+                text="No hay citas futuras visibles en este momento."
               />
             )}
           </div>
@@ -245,6 +246,15 @@ function isActiveAppointment(status: string): boolean {
   const normalized = status.toLowerCase()
   if (!normalized) return true
   return !normalized.includes('cancel') && !normalized.includes('no_show')
+}
+
+function isUpcomingOrToday(value: string, now: Date): boolean {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return false
+
+  const startOfToday = new Date(now)
+  startOfToday.setHours(0, 0, 0, 0)
+  return date.getTime() >= startOfToday.getTime()
 }
 
 function formatTime(value: string): string {
