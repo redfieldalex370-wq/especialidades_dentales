@@ -8,13 +8,12 @@ import type { CalendarAppointment, CrmLead, CrmLeadDetail, CrmStage, DentalLeadD
 import {
   createDentalWalkInLead,
   DENTAL_PIPELINE_FALLBACK,
-  getDentalLeadDetail,
   getDentalPipelineStages,
   listDentalCrmLeads,
-  updateDentalLeadDetail,
   updateDentalLeadKioskState,
   updateDentalLeadStage,
 } from './services/crm'
+import { getDentalLeadDetail, updateDentalLeadDetail } from './services/fichas'
 import {
   isGoogleCalendarConfigured,
   listCalendarAppointments,

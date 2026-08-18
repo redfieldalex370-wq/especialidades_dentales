@@ -70,77 +70,92 @@ export interface CrmLead {
   updatedAt: string
 }
 
-export interface ClinicalRecord {
-  id: string
-  leadId: string
-  companyKey: string
+export type CasoComercialEstado =
+  | 'valorado'
+  | 'en_seguimiento'
+  | 'escalado_closer'
+  | 'agendado'
+  | 'abono_recibido'
+  | 'perdido'
+
+export type CasoComercialCerradoPor = 'doctor' | 'closer_greenchimp' | 'automatico'
+export type TrazabilidadResponsable = 'bot' | 'doctor' | 'closer' | 'sistema'
+
+export interface FichaClinica {
+  id?: string
+  fichaClinicaId: string
+  leadId?: string
+  companyKey?: string
   waId: string
   motivoConsulta: string
   diagnostico: string
   tratamientoPropuesto: string
-  especialidad: string
+  especialidad?: string
   piezasInvolucradas: string
   notasEvolucion: string
   archivosAdjuntos: string[]
+  createdAt: string
   updatedAt: string
 }
 
-export interface CommercialCase {
-  id: string
-  leadId: string
-  companyKey: string
+export interface CasoComercial {
+  id?: string
+  casoComercialId: string
+  leadId?: string
+  companyKey?: string
   waId: string
   costoCotizado: number | null
   promocionAplicada: string
   objeciones: string
   indicacionSeguimiento: string
   proximaCitaSugerida: string
-  estado: string
+  estado: CasoComercialEstado
   montoCerrado: number | null
-  cerradoPor: string
-  escaladoCloser: boolean
-  escaladoMotivo: string
+  cerradoPor: CasoComercialCerradoPor | ''
+  escaladoCloser?: boolean
+  escaladoMotivo?: string
+  createdAt: string
   updatedAt: string
 }
 
-export interface TraceabilityEvent {
-  id: string
-  caseId: string
-  leadId: string
-  companyKey: string
-  waId: string
+export interface TrazabilidadEvento {
+  id?: string
+  eventoId: string
+  caseId?: string
+  leadId?: string
+  companyKey?: string
+  waId?: string
+  casoComercialId: string
   timestamp: string
   tipoEvento: string
-  responsable: 'bot' | 'doctor' | 'closer' | 'sistema'
-  metadata: Record<string, unknown>
+  responsable: TrazabilidadResponsable
+  metadata?: Record<string, unknown>
 }
 
 export interface CrmLeadDetail {
-  clinicalRecord: ClinicalRecord | null
-  commercialCase: CommercialCase | null
-  traceability: TraceabilityEvent[]
+  fichaClinica: FichaClinica | null
+  casoComercial: CasoComercial | null
+  trazabilidad: TrazabilidadEvento[]
 }
 
 export interface DentalLeadDetailUpdate {
-  clinicalRecord: {
+  fichaClinica: {
     motivoConsulta: string
     diagnostico: string
     tratamientoPropuesto: string
-    especialidad: string
     piezasInvolucradas: string
     notasEvolucion: string
+    archivosAdjuntos: string[]
   }
-  commercialCase: {
+  casoComercial: {
     costoCotizado: number | null
     promocionAplicada: string
     objeciones: string
     indicacionSeguimiento: string
     proximaCitaSugerida: string
-    estado: string
+    estado: CasoComercialEstado
     montoCerrado: number | null
-    cerradoPor: string
-    escaladoCloser: boolean
-    escaladoMotivo: string
+    cerradoPor: CasoComercialCerradoPor | ''
   }
 }
 
@@ -148,7 +163,7 @@ export interface TraceEvent {
   id: string
   timestamp: string
   type: string
-  responsible: 'bot' | 'doctor' | 'closer' | 'sistema'
+  responsible: TrazabilidadResponsable
 }
 
 export interface CalendarAppointment {
@@ -163,3 +178,7 @@ export interface CalendarAppointment {
   matchedLeadId: string
   source: 'google_calendar'
 }
+
+export type ClinicalRecord = FichaClinica
+export type CommercialCase = CasoComercial
+export type TraceabilityEvent = TrazabilidadEvento
