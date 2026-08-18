@@ -28,6 +28,7 @@ export function PatientView({
   const [saving, setSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState('')
   const [kioskBusy, setKioskBusy] = useState(false)
+  const [saveError, setSaveError] = useState('')
   const deferredNameSearch = useDeferredValue(nameSearch)
   const deferredPhoneSearch = useDeferredValue(phoneSearch)
   const hasSearch = deferredNameSearch.trim().length > 0 || deferredPhoneSearch.trim().length > 0
@@ -51,6 +52,7 @@ export function PatientView({
   useEffect(() => {
     setDraft(buildDraft(lead, detail))
     setSaveMessage('')
+    setSaveError('')
     setEditing(false)
   }, [lead?.id, detail?.fichaClinica?.updatedAt, detail?.casoComercial?.updatedAt])
 
@@ -75,6 +77,12 @@ export function PatientView({
   const events = buildEvents(detail?.trazabilidad ?? [])
 
   async function handleSave() {
+    setSaveError('')
+    if (draft.casoComercial.estado === 'abono_recibido' && (!draft.casoComercial.montoCerrado || draft.casoComercial.montoCerrado <= 0)) {
+      setSaveError('Si el estado es abono_recibido, captura un monto cerrado mayor a 0.')
+      return
+    }
+
     setSaving(true)
     setSaveMessage('')
 
@@ -135,6 +143,13 @@ export function PatientView({
         <section className={`panel ${saveMessage.includes('guardados') ? 'success-panel' : 'warning-panel'}`}>
           <span className="eyebrow">Ficha</span>
           <p>{saveMessage}</p>
+        </section>
+      )}
+
+      {saveError && (
+        <section className="panel warning-panel">
+          <span className="eyebrow">Ficha</span>
+          <p>{saveError}</p>
         </section>
       )}
 
@@ -209,11 +224,17 @@ export function PatientView({
           <EditableField label="Objeciones" editing={editing} type="textarea" value={draft.casoComercial.objeciones} displayValue={commercialText(commercial, 'objeciones') || 'No mencionado'} onChange={(value) => setDraft((current) => ({ ...current, casoComercial: { ...current.casoComercial, objeciones: value } }))} />
           <EditableField label="Indicacion seguimiento" editing={editing} type="textarea" value={draft.casoComercial.indicacionSeguimiento} displayValue={commercialText(commercial, 'indicacionSeguimiento') || 'No mencionado'} onChange={(value) => setDraft((current) => ({ ...current, casoComercial: { ...current.casoComercial, indicacionSeguimiento: value } }))} />
           <EditableField label="Proxima cita sugerida" editing={editing} type="datetime-local" value={draft.casoComercial.proximaCitaSugerida} displayValue={commercial?.proximaCitaSugerida ? formatDateTime(commercial.proximaCitaSugerida) : lead.appointmentDate ? formatDateTime(lead.appointmentDate) : 'Pendiente'} onChange={(value) => setDraft((current) => ({ ...current, casoComercial: { ...current.casoComercial, proximaCitaSugerida: value } }))} />
-          <EditableSelectField label="Estado comercial" editing={editing} value={draft.casoComercial.estado} displayValue={commercial?.estado || 'valorado'} options={ESTADO_OPTIONS} onChange={(value) => setDraft((current) => ({ ...current, casoComercial: { ...current.casoComercial, estado: value as CasoComercialEstado } }))} />
+          <EditableSelectField label="Estado comercial" editing={editing} value={draft.casoComercial.estado} displayValue={labelForEstado(draft.casoComercial.estado)} options={ESTADO_OPTIONS} onChange={(value) => setDraft((current) => ({ ...current, casoComercial: { ...current.casoComercial, estado: value as CasoComercialEstado } }))} />
+          {(draft.casoComercial.costoCotizado ?? 0) > 45000 && draft.casoComercial.estado !== 'escalado_closer' && (
+            <div className="status-strip">
+              <span>Advertencia</span>
+              <strong>Sugerencia: escalar a closer por monto mayor a $45,000</strong>
+            </div>
+          )}
           {draft.casoComercial.estado === 'abono_recibido' && (
             <>
               <EditableField label="Monto cerrado" editing={editing} type="number" value={draft.casoComercial.montoCerrado === null ? '' : String(draft.casoComercial.montoCerrado)} displayValue={commercial?.montoCerrado ? money(commercial.montoCerrado) : 'Sin abono'} onChange={(value) => setDraft((current) => ({ ...current, casoComercial: { ...current.casoComercial, montoCerrado: value ? Number(value) : null } }))} />
-              <EditableSelectField label="Cerrado por" editing={editing} value={draft.casoComercial.cerradoPor || ''} displayValue={commercial?.cerradoPor || 'No definido'} options={CERRADO_POR_OPTIONS} onChange={(value) => setDraft((current) => ({ ...current, casoComercial: { ...current.casoComercial, cerradoPor: value as DentalLeadDetailUpdate['casoComercial']['cerradoPor'] } }))} />
+              <EditableSelectField label="Cerrado por" editing={editing} value={draft.casoComercial.cerradoPor || ''} displayValue={labelForCerradoPor(draft.casoComercial.cerradoPor || '')} options={CERRADO_POR_OPTIONS} onChange={(value) => setDraft((current) => ({ ...current, casoComercial: { ...current.casoComercial, cerradoPor: value as DentalLeadDetailUpdate['casoComercial']['cerradoPor'] } }))} />
             </>
           )}
         </article>
@@ -508,7 +529,7 @@ function labelForKioskStatus(status: KioskLeadStatus): string {
 const ESTADO_OPTIONS: Array<{ value: CasoComercialEstado; label: string }> = [
   { value: 'valorado', label: 'Valorado' },
   { value: 'en_seguimiento', label: 'En seguimiento' },
-  { value: 'escalado_closer', label: 'Escalado closer' },
+  { value: 'escalado_closer', label: 'Escalado a closer' },
   { value: 'agendado', label: 'Agendado' },
   { value: 'abono_recibido', label: 'Abono recibido' },
   { value: 'perdido', label: 'Perdido' },
@@ -520,3 +541,11 @@ const CERRADO_POR_OPTIONS = [
   { value: 'closer_greenchimp', label: 'Closer GreenChimp' },
   { value: 'automatico', label: 'Automático' },
 ]
+
+function labelForEstado(value: CasoComercialEstado): string {
+  return ESTADO_OPTIONS.find((option) => option.value === value)?.label ?? value
+}
+
+function labelForCerradoPor(value: string): string {
+  return CERRADO_POR_OPTIONS.find((option) => option.value === value)?.label ?? 'No definido'
+}

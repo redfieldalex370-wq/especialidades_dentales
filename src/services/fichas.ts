@@ -1,4 +1,5 @@
 import { requireSupabase } from '../lib/supabase'
+import { logTraceabilityEvent } from './crm'
 import type {
   CasoComercial,
   CasoComercialCerradoPor,
@@ -17,7 +18,7 @@ const TABLES = {
   leads: 'crm_leads',
   fichaClinica: 'ficha_clinica',
   casoComercial: 'caso_comercial',
-  trazabilidad: 'trazabilidad',
+  trazabilidad: 'caso_trazabilidad',
 } as const
 
 type RawRow = Record<string, unknown>
@@ -318,21 +319,11 @@ export async function updateDentalLeadDetail(lead: CrmLead, input: DentalLeadDet
     })
   }
 
-  if (previousCase?.estado !== input.casoComercial.estado) {
-    await addEvento({
-      casoComercialId: casoComercial.casoComercialId,
-      tipoEvento: `estado_${input.casoComercial.estado}`,
-      responsable: 'sistema',
-    })
-  }
-
-  if (input.casoComercial.estado === 'abono_recibido' && input.casoComercial.montoCerrado) {
-    await addEvento({
-      casoComercialId: casoComercial.casoComercialId,
-      tipoEvento: 'abono_recibido',
-      responsable: input.casoComercial.cerradoPor === 'doctor' ? 'doctor' : 'sistema',
-    })
-  }
+  await logTraceabilityEvent({
+    lead,
+    tipoEvento: 'ficha actualizada',
+    responsable: 'doctor',
+  })
 
   const trazabilidad = await listEventos(casoComercial.casoComercialId)
 

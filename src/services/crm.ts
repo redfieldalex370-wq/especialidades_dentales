@@ -6,6 +6,7 @@ import type {
   KioskFlow,
   KioskLeadStatus,
   LeadOrigin,
+  TrazabilidadResponsable,
 } from '../types'
 
 export const AVAILABLE_COMPANIES = [
@@ -384,7 +385,13 @@ export async function updateDentalLeadStage(params: {
     .single()
 
   if (error) throw error
-  return mapDentalLead(data as RawLead)
+  const savedLead = mapDentalLead(data as RawLead)
+  await logTraceabilityEvent({
+    lead: savedLead,
+    tipoEvento: `etapa kanban cambiada a ${params.stageKey}`,
+    responsable: 'sistema',
+  })
+  return savedLead
 }
 
 export async function syncDentalLeadAppointment(params: {
@@ -457,7 +464,21 @@ export async function updateDentalLeadKioskState(params: {
     .single()
 
   if (error) throw error
-  return mapDentalLead(data as RawLead)
+  const savedLead = mapDentalLead(data as RawLead)
+  const eventByStatus: Partial<Record<KioskLeadStatus, string>> = {
+    en_espera: 'llegada registrada',
+    en_consulta: 'consulta iniciada',
+    finalizada: 'consulta finalizada',
+  }
+  const tipoEvento = eventByStatus[params.kioskStatus]
+  if (tipoEvento) {
+    await logTraceabilityEvent({
+      lead: savedLead,
+      tipoEvento,
+      responsable: 'sistema',
+    })
+  }
+  return savedLead
 }
 
 export async function createDentalWalkInLead(params: {
@@ -497,5 +518,79 @@ export async function createDentalWalkInLead(params: {
     .single()
 
   if (error) throw error
-  return mapDentalLead(data as RawLead)
+  const createdLead = mapDentalLead(data as RawLead)
+  await logTraceabilityEvent({
+    lead: createdLead,
+    tipoEvento: 'lead creado via kiosko',
+    responsable: 'sistema',
+  })
+  return createdLead
+}
+
+export async function ensureCasoComercialForLead(lead: Pick<CrmLead, 'id' | 'waId' | 'companyKey'>): Promise<string> {
+  if (!lead.waId) {
+    throw new Error('No pudimos registrar trazabilidad porque el lead no tiene wa_id.')
+  }
+
+  const client = requireSupabase()
+  const companyKey = resolveCompanyKey(lead.companyKey)
+
+  const { data: leadRow, error: leadError } = await client
+    .from(CRM_TABLES.leads)
+    .select('id')
+    .eq('company_key', companyKey)
+    .eq('wa_id', lead.waId)
+    .maybeSingle()
+
+  if (leadError) throw leadError
+  if (!leadRow) {
+    throw new Error('No encontramos el lead de esta clínica para registrar trazabilidad.')
+  }
+
+  const { data: existingCase, error: existingError } = await client
+    .from(CRM_TABLES.commercialCases)
+    .select('caso_comercial_id')
+    .eq('wa_id', lead.waId)
+    .maybeSingle()
+
+  if (existingError) throw existingError
+  if (existingCase?.caso_comercial_id) return String(existingCase.caso_comercial_id)
+
+  const { data: createdCase, error: createError } = await client
+    .from(CRM_TABLES.commercialCases)
+    .insert({
+      wa_id: lead.waId,
+      estado: 'valorado',
+    })
+    .select('caso_comercial_id')
+    .single()
+
+  if (createError) throw createError
+  return String(createdCase.caso_comercial_id)
+}
+
+export async function logTraceabilityEvent(params: {
+  lead: Pick<CrmLead, 'id' | 'waId' | 'companyKey'>
+  tipoEvento: string
+  responsable: TrazabilidadResponsable
+}): Promise<void> {
+  if (!params.lead.waId) return
+
+  const client = requireSupabase()
+  const casoComercialId = await ensureCasoComercialForLead(params.lead)
+  const companyKey = resolveCompanyKey(params.lead.companyKey)
+
+  const { error } = await client
+    .from(CRM_TABLES.traceability)
+    .insert({
+      caso_comercial_id: casoComercialId,
+      lead_id: params.lead.id,
+      company_key: companyKey,
+      wa_id: params.lead.waId,
+      timestamp: new Date().toISOString(),
+      tipo_evento: params.tipoEvento,
+      responsable: params.responsable,
+    })
+
+  if (error) throw error
 }
