@@ -11,6 +11,7 @@ interface Props {
   onRegisterWalkIn: (name: string, phone: string) => Promise<CrmLead>
   onUpdateLeadStatus: (leadId: string, kioskStatus: KioskLeadStatus, kioskFlow?: KioskFlow) => Promise<void>
   onCallNextPatient: (mode: 'automatico' | 'manual') => Promise<CrmLead | null>
+  onFinalizeCurrentConsultation: (mode: 'automatico' | 'manual' | 'telegram') => Promise<{ finalizedLead: CrmLead | null; calledNextLead: CrmLead | null }>
 }
 
 export function WaitingRoomView({
@@ -23,6 +24,7 @@ export function WaitingRoomView({
   onRegisterWalkIn,
   onUpdateLeadStatus,
   onCallNextPatient,
+  onFinalizeCurrentConsultation,
 }: Props) {
   const [mode, setMode] = useState<KioskFlow>('con_cita')
   const [nameSearch, setNameSearch] = useState('')
@@ -145,6 +147,44 @@ export function WaitingRoomView({
     }
   }
 
+  async function handleAdvanceQueue() {
+    setActionMessage('')
+
+    if (currentPatient) {
+      setBusyLeadId(currentPatient.id)
+      try {
+        const result = await onFinalizeCurrentConsultation('manual')
+        if (result.calledNextLead) {
+          setActionMessage(`Terminó ${currentPatient.name} y entró ${result.calledNextLead.name}.`)
+        } else if (result.finalizedLead) {
+          setActionMessage(`Terminó ${currentPatient.name}. No hay más pacientes esperando.`)
+        } else {
+          setActionMessage('No había una consulta activa para finalizar.')
+        }
+      } catch (error) {
+        setActionMessage(error instanceof Error ? error.message : 'No se pudo avanzar la cola.')
+      } finally {
+        setBusyLeadId('')
+      }
+      return
+    }
+
+    if (!waitingPatients.length) {
+      setActionMessage('No hay pacientes esperando en este momento.')
+      return
+    }
+
+    setBusyLeadId(waitingPatients[0].id)
+    try {
+      const selected = await onCallNextPatient('manual')
+      setActionMessage(selected ? `Se llamó a ${selected.name}.` : 'No había un turno disponible para pasar en este momento.')
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : 'No se pudo llamar al siguiente paciente.')
+    } finally {
+      setBusyLeadId('')
+    }
+  }
+
   async function handleWalkInSubmit(event: FormEvent) {
     event.preventDefault()
     if (!walkInName.trim() || !walkInPhone.trim()) {
@@ -230,10 +270,10 @@ export function WaitingRoomView({
                 <button className="secondary-button" onClick={() => onOpenLead(currentPatient.id)}>Ficha</button>
                 <button
                   className="primary-button"
-                  onClick={() => void handleStatusChange(currentPatient.id, 'finalizada')}
+                  onClick={() => void handleAdvanceQueue()}
                   disabled={busyLeadId === currentPatient.id}
                 >
-                  Finalizar
+                  {busyLeadId === currentPatient.id ? 'Cerrando...' : 'Finalizar y llamar siguiente'}
                 </button>
               </div>
             </article>
@@ -247,9 +287,14 @@ export function WaitingRoomView({
             <span className="eyebrow">Kiosko</span>
             <h2>Llegada del paciente</h2>
           </div>
-          <button className="secondary-button" onClick={onRefresh} disabled={loading}>
-            {loading || calendarLoading ? 'Actualizando...' : 'Actualizar'}
-          </button>
+          <div className="patient-browser-actions">
+            <button className="secondary-button" onClick={onRefresh} disabled={loading}>
+              {loading || calendarLoading ? 'Actualizando...' : 'Actualizar'}
+            </button>
+            <button className="primary-button" onClick={() => void handleAdvanceQueue()} disabled={busyLeadId !== ''}>
+              Siguiente
+            </button>
+          </div>
         </div>
 
         <div className="kiosk-mode-switch">
@@ -424,25 +469,14 @@ export function WaitingRoomView({
                 <div>
                   <strong>{lead.name}</strong>
                   <span>{lead.appointmentDate ? formatTime(lead.appointmentDate) : 'Sin cita'} · llegó {lead.arrivalAt ? formatTime(lead.arrivalAt) : 'ahora'}</span>
-                  <small>{lead.kioskFlow === 'sin_cita' ? 'Sin cita' : 'Con cita del día'}</small>
+                  <small>{lead.kioskFlow === 'sin_cita' ? 'Sin cita' : 'Con cita del día'} · esperando {minutesSince(lead.arrivalAt, now)} min</small>
                 </div>
                 <div className="patient-browser-actions">
                   <button className="secondary-button" onClick={() => onOpenLead(lead.id)}>Ficha</button>
                   {index === 0 ? (
                     <button
                       className="primary-button"
-                      onClick={async () => {
-                        setBusyLeadId(lead.id)
-                        setActionMessage('')
-                        try {
-                          const selected = await onCallNextPatient('manual')
-                          setActionMessage(selected ? 'Se llamó al siguiente paciente.' : 'No había un turno disponible para pasar en este momento.')
-                        } catch (error) {
-                          setActionMessage(error instanceof Error ? error.message : 'No se pudo llamar al siguiente paciente.')
-                        } finally {
-                          setBusyLeadId('')
-                        }
-                      }}
+                      onClick={() => void handleAdvanceQueue()}
                       disabled={busyLeadId === lead.id || Boolean(currentPatient)}
                     >
                       {busyLeadId === lead.id ? 'Llamando...' : currentPatient ? 'Consulta activa' : 'Pasar'}

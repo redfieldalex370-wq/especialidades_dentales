@@ -10,11 +10,13 @@ import {
   callNextWaitingPatient,
   createDentalWalkInLead,
   DENTAL_PIPELINE_FALLBACK,
+  finalizeCurrentConsultation,
   getDentalPipelineStages,
   listDentalCrmLeads,
   updateDentalLeadKioskState,
   updateDentalLeadStage,
 } from './services/crm'
+import { canonicalMxPhoneKey } from './lib/phone'
 import { getDentalLeadDetail, updateDentalLeadDetail } from './services/fichas'
 import {
   isGoogleCalendarConfigured,
@@ -285,11 +287,25 @@ export default function App() {
     return selected
   }
 
+  async function handleFinalizeCurrentConsultation(mode: 'automatico' | 'manual' | 'telegram') {
+    const result = await finalizeCurrentConsultation({
+      companyKey,
+      mode,
+    })
+
+    await loadCrm()
+
+    if (selectedLeadIdRef.current) {
+      await loadLeadDetail(selectedLeadIdRef.current)
+    }
+
+    return result
+  }
+
   async function handleRegisterWalkIn(name: string, phone: string) {
-    const digits = phone.replace(/\D/g, '')
+    const phoneKey = canonicalMxPhoneKey(phone)
     const existing = crmLeads.find((item) => {
-      const haystack = `${item.phone} ${item.waId}`.replace(/\D/g, '')
-      return digits && haystack.includes(digits)
+      return [item.phone, item.waId, item.subscriberId].some((value) => canonicalMxPhoneKey(value) === phoneKey)
     })
 
     if (existing) {
@@ -366,6 +382,7 @@ export default function App() {
               onRegisterWalkIn={handleRegisterWalkIn}
               onUpdateLeadStatus={handleUpdateKioskStatus}
               onCallNextPatient={handleCallNextPatient}
+              onFinalizeCurrentConsultation={handleFinalizeCurrentConsultation}
             />
           )}
           {view === 'patient' && (
@@ -378,6 +395,8 @@ export default function App() {
               onOpenLead={openLead}
               onSaveDetail={handleSaveLeadDetail}
               onUpdateKioskStatus={handleUpdateKioskStatus}
+              onCallNextPatient={handleCallNextPatient}
+              onFinalizeCurrentConsultation={handleFinalizeCurrentConsultation}
             />
           )}
           {view === 'automation' && <AutomationView leads={crmLeads} onOpenLead={openLead} />}

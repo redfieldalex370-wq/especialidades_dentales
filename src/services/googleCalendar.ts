@@ -1,4 +1,5 @@
 import type { CalendarAppointment, CrmLead } from '../types'
+import { canonicalMxPhoneKey, phonesMatchMx } from '../lib/phone'
 
 const apiKey = import.meta.env.VITE_GOOGLE_API_KEY?.trim()
 const calendarId = import.meta.env.VITE_GOOGLE_CALENDAR_ID?.trim()
@@ -95,7 +96,12 @@ function mapCalendarEvent(item: GoogleCalendarEvent, leads: CrmLead[]): Calendar
   if (!isAllowedDentalAppointment(title, item.description?.trim() ?? '')) return null
 
   const patientName = extractPatientName(title)
-  const matchedLead = findMatchingLead(patientName, leads)
+  const matchedLead = findMatchingLead({
+    patientName,
+    title,
+    description: item.description?.trim() ?? '',
+    leads,
+  })
 
   return {
     id: item.id ?? crypto.randomUUID(),
@@ -200,7 +206,35 @@ function normalizeText(value: string): string {
     .trim()
 }
 
-function findMatchingLead(patientName: string, leads: CrmLead[]): CrmLead | null {
+function findMatchingLead({
+  patientName,
+  title,
+  description,
+  leads,
+}: {
+  patientName: string
+  title: string
+  description: string
+  leads: CrmLead[]
+}): CrmLead | null {
+  const explicitIdentifier = extractLeadIdentifier(`${title}\n${description}`)
+  if (explicitIdentifier) {
+    const matchedById = leads.find((lead) =>
+      [lead.waId, lead.phone, lead.subscriberId].some((value) => normalizeIdentifier(value) === explicitIdentifier),
+    )
+    if (matchedById) return matchedById
+  }
+
+  const explicitPhoneKey = extractPhoneFromText(`${title}\n${description}`)
+  if (explicitPhoneKey) {
+    const matchedByPhone = leads.find((lead) =>
+      phonesMatchMx(lead.phone, explicitPhoneKey) ||
+      phonesMatchMx(lead.waId, explicitPhoneKey) ||
+      phonesMatchMx(lead.subscriberId, explicitPhoneKey),
+    )
+    if (matchedByPhone) return matchedByPhone
+  }
+
   const target = normalizeText(patientName)
   if (!target) return null
 
@@ -208,6 +242,24 @@ function findMatchingLead(patientName: string, leads: CrmLead[]): CrmLead | null
     const leadName = normalizeText(lead.name)
     return leadName === target || leadName.includes(target) || target.includes(leadName)
   }) ?? null
+}
+
+function extractPhoneFromText(value: string): string {
+  const matches = value.match(/\+?\d[\d\s\-()]{8,}\d/g) ?? []
+  for (const match of matches) {
+    const key = canonicalMxPhoneKey(match)
+    if (key.length === 10) return key
+  }
+  return ''
+}
+
+function extractLeadIdentifier(value: string): string {
+  const identifierMatch = value.match(/\b(?:wa[_\s-]?id|subscriber[_\s-]?id|lead[_\s-]?id)\s*[:#-]?\s*([a-z0-9+\-]+)/i)
+  return identifierMatch ? normalizeIdentifier(identifierMatch[1]) : ''
+}
+
+function normalizeIdentifier(value: string): string {
+  return value.trim().toLowerCase()
 }
 
 function isAllowedDentalAppointment(title: string, description: string): boolean {

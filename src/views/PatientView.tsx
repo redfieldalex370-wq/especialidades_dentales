@@ -10,6 +10,8 @@ interface Props {
   onOpenLead: (leadId: string) => void
   onSaveDetail: (leadId: string, input: DentalLeadDetailUpdate) => Promise<void>
   onUpdateKioskStatus: (leadId: string, kioskStatus: KioskLeadStatus, kioskFlow?: KioskFlow) => Promise<void>
+  onCallNextPatient: (mode: 'automatico' | 'manual') => Promise<CrmLead | null>
+  onFinalizeCurrentConsultation: (mode: 'automatico' | 'manual' | 'telegram') => Promise<{ finalizedLead: CrmLead | null; calledNextLead: CrmLead | null }>
 }
 
 export function PatientView({
@@ -21,6 +23,8 @@ export function PatientView({
   onOpenLead,
   onSaveDetail,
   onUpdateKioskStatus,
+  onCallNextPatient,
+  onFinalizeCurrentConsultation,
 }: Props) {
   const [nameSearch, setNameSearch] = useState('')
   const [phoneSearch, setPhoneSearch] = useState('')
@@ -119,6 +123,32 @@ export function PatientView({
     }
   }
 
+  async function handleAdvanceOperationalFlow() {
+    setKioskBusy(true)
+    setSaveMessage('')
+
+    try {
+      if (activeLead.kioskStatus === 'en_consulta') {
+        const result = await onFinalizeCurrentConsultation('manual')
+        if (result.calledNextLead) {
+          setSaveMessage(`Atención finalizada. Siguiente paciente: ${result.calledNextLead.name}.`)
+        } else if (result.finalizedLead) {
+          setSaveMessage('Atención finalizada. No hay más pacientes esperando.')
+        } else {
+          setSaveMessage('No había una consulta activa que finalizar.')
+        }
+        return
+      }
+
+      const selected = await onCallNextPatient('manual')
+      setSaveMessage(selected ? `Se llamó al siguiente paciente: ${selected.name}.` : 'No hay pacientes esperando en este momento.')
+    } catch (error) {
+      setSaveMessage(error instanceof Error ? error.message : 'No se pudo avanzar el flujo operativo.')
+    } finally {
+      setKioskBusy(false)
+    }
+  }
+
   return (
     <div className="view-stack">
       <div className="section-head standalone">
@@ -173,6 +203,8 @@ export function PatientView({
         <div className="field-grid">
           <Field label="Flujo" value={lead.kioskFlow === 'sin_cita' ? 'Sin cita' : 'Con cita'} />
           <Field label="Llegada" value={lead.arrivalAt ? formatDateTime(lead.arrivalAt) : 'Sin llegada registrada'} />
+          <Field label="Inicio consulta" value={lead.consultaInicioAt ? formatDateTime(lead.consultaInicioAt) : 'Sin inicio registrado'} />
+          <Field label="Fin consulta" value={lead.consultaFinAt ? formatDateTime(lead.consultaFinAt) : 'Sin cierre registrado'} />
           <Field label="Cita activa" value={lead.appointmentDate ? formatDateTime(lead.appointmentDate) : 'Sin cita'} />
           <Field label="Estado de sala" value={labelForKioskStatus(lead.kioskStatus)} />
         </div>
@@ -181,10 +213,10 @@ export function PatientView({
           <button className="secondary-button" onClick={() => void handleKioskAction('en_espera', lead.appointmentDate ? 'con_cita' : 'sin_cita')} disabled={kioskBusy}>
             {kioskBusy ? 'Guardando...' : 'Marcar llegada'}
           </button>
-          <button className="secondary-button" onClick={() => void handleKioskAction('en_consulta')} disabled={kioskBusy}>
-            Pasar a consulta
+          <button className="secondary-button" onClick={() => void handleAdvanceOperationalFlow()} disabled={kioskBusy}>
+            {lead.kioskStatus === 'en_consulta' ? 'Finalizar y llamar siguiente' : 'Llamar siguiente'}
           </button>
-          <button className="primary-button" onClick={() => void handleKioskAction('finalizada')} disabled={kioskBusy}>
+          <button className="primary-button" onClick={() => void handleAdvanceOperationalFlow()} disabled={kioskBusy || lead.kioskStatus !== 'en_consulta'}>
             Finalizar atencion
           </button>
         </div>

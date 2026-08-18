@@ -1,4 +1,5 @@
 import { requireSupabase } from '../lib/supabase'
+import { canonicalMxPhoneKey, normalizeMexPhoneToE164 } from '../lib/phone'
 import type {
   CrmLead,
   CrmLeadComment,
@@ -553,6 +554,52 @@ export async function callNextWaitingPatient(params: {
   return lead
 }
 
+export async function finalizeCurrentConsultation(params: {
+  companyKey?: CrmCompanyKey
+  mode: 'automatico' | 'manual' | 'telegram'
+}): Promise<{
+  finalizedLead: CrmLead | null
+  calledNextLead: CrmLead | null
+}> {
+  const client = requireSupabase()
+  const companyKey = params.companyKey ?? DEFAULT_CRM_COMPANY_KEY
+  const { data, error } = await client.rpc('finalizar_consulta_actual', {
+    p_company_key: companyKey,
+  })
+
+  if (error) throw error
+
+  const row = Array.isArray(data) ? data[0] : null
+  const finalizedId = stringValue(row?.finalized_id)
+  const finalizedWaId = stringValue(row?.finalized_wa_id)
+  const calledNextId = stringValue(row?.called_next_id)
+  const calledNextWaId = stringValue(row?.called_next_wa_id)
+
+  const finalizedLead = finalizedId ? await getLeadById(finalizedId, companyKey) : null
+  const calledNextLead = calledNextId ? await getLeadById(calledNextId, companyKey) : null
+
+  if (finalizedLead ?? finalizedWaId) {
+    await logTraceabilityEvent({
+      lead: finalizedLead ?? { id: finalizedId, waId: finalizedWaId, companyKey },
+      tipoEvento: 'consulta finalizada',
+      responsable: 'sistema',
+    })
+  }
+
+  if (calledNextLead ?? calledNextWaId) {
+    await logTraceabilityEvent({
+      lead: calledNextLead ?? { id: calledNextId, waId: calledNextWaId, companyKey },
+      tipoEvento: params.mode === 'manual' ? 'llamado manual' : 'llamado automatico',
+      responsable: 'sistema',
+    })
+  }
+
+  return {
+    finalizedLead,
+    calledNextLead,
+  }
+}
+
 export async function createDentalWalkInLead(params: {
   companyKey?: CrmCompanyKey
   name: string
@@ -561,9 +608,10 @@ export async function createDentalWalkInLead(params: {
   const client = requireSupabase()
   const now = new Date().toISOString()
   const companyKey = params.companyKey ?? DEFAULT_CRM_COMPANY_KEY
-  const digits = params.phone.replace(/\D/g, '')
+  const phoneE164 = normalizeMexPhoneToE164(params.phone)
+  const canonicalPhone = canonicalMxPhoneKey(params.phone)
   const rawPayload = {
-    telefono: digits,
+    telefono: phoneE164 || canonicalPhone,
     nombre_paciente: params.name,
     origen_lead: 'walkin_sin_cita',
     kiosk_flow: 'sin_cita',
@@ -576,8 +624,8 @@ export async function createDentalWalkInLead(params: {
     .insert({
       company_key: companyKey,
       nombre_paciente: params.name,
-      whatsapp_phone: digits || null,
-      wa_id: digits || null,
+      whatsapp_phone: phoneE164 || canonicalPhone || null,
+      wa_id: phoneE164 || canonicalPhone || null,
       estado_consulta: 'en_espera',
       llegada_kiosko_at: now,
       origen_lead: 'walkin_sin_cita',
@@ -597,6 +645,19 @@ export async function createDentalWalkInLead(params: {
     responsable: 'sistema',
   })
   return createdLead
+}
+
+async function getLeadById(leadId: string, companyKey: CrmCompanyKey): Promise<CrmLead | null> {
+  const client = requireSupabase()
+  const { data, error } = await client
+    .from(CRM_TABLES.leads)
+    .select('*')
+    .eq('id', leadId)
+    .eq('company_key', companyKey)
+    .maybeSingle()
+
+  if (error) throw error
+  return data ? mapDentalLead(data as RawLead) : null
 }
 
 export async function ensureCasoComercialForLead(lead: Pick<CrmLead, 'id' | 'waId' | 'companyKey'>): Promise<string> {
