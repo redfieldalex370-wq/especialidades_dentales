@@ -165,6 +165,29 @@ export function WaitingRoomView({
 
   return (
     <div className="view-stack">
+      <section className="crm-dashboard-grid waiting-room-grid">
+        <article className="panel waiting-summary-panel">
+          <div className="waiting-summary-grid">
+            <div className="waiting-summary-card">
+              <span>Citas de hoy</span>
+              <strong>{todayAppointments.length}</strong>
+            </div>
+            <div className="waiting-summary-card">
+              <span>Ya llegaron</span>
+              <strong>{arrivedTodayCount}</strong>
+            </div>
+            <div className="waiting-summary-card">
+              <span>En consulta</span>
+              <strong>{currentPatient ? 1 : 0}</strong>
+            </div>
+            <div className="waiting-summary-card">
+              <span>Pendientes</span>
+              <strong>{pendingTodayCount}</strong>
+            </div>
+          </div>
+        </article>
+      </section>
+
       <section className="panel kiosk-entry-panel">
         <div className="section-head compact">
           <div>
@@ -224,18 +247,8 @@ export function WaitingRoomView({
                       </div>
                     </article>
                   ))
-                ) : (
-                  <div className="empty-state empty-state-compact">
-                    <h3>No encontramos una cita</h3>
-                    <p>Prueba con otro nombre o telefono.</p>
-                  </div>
-                )
-              ) : (
-                <div className="empty-state empty-state-compact">
-                  <h3>Busca al paciente</h3>
-                  <p>Escribe nombre o telefono para marcar llegada.</p>
-                </div>
-              )}
+                ) : null
+              ) : null}
             </div>
           </div>
         ) : (
@@ -255,29 +268,6 @@ export function WaitingRoomView({
         )}
 
         {actionMessage && <p className="inline-helper">{actionMessage}</p>}
-      </section>
-
-      <section className="crm-dashboard-grid waiting-room-grid">
-        <article className="panel waiting-summary-panel">
-          <div className="waiting-summary-grid">
-            <div className="waiting-summary-card">
-              <span>Citas de hoy</span>
-              <strong>{todayAppointments.length}</strong>
-            </div>
-            <div className="waiting-summary-card">
-              <span>Ya llegaron</span>
-              <strong>{arrivedTodayCount}</strong>
-            </div>
-            <div className="waiting-summary-card">
-              <span>En consulta</span>
-              <strong>{currentPatient ? 1 : 0}</strong>
-            </div>
-            <div className="waiting-summary-card">
-              <span>Pendientes</span>
-              <strong>{pendingTodayCount}</strong>
-            </div>
-          </div>
-        </article>
       </section>
 
       <section className="crm-dashboard-grid waiting-room-grid">
@@ -365,39 +355,8 @@ export function WaitingRoomView({
         </article>
       </section>
 
-      <section className="crm-dashboard-grid waiting-room-grid">
-        <article className="panel">
-          <div className="section-head compact">
-            <div>
-              <span className="eyebrow">Consulta actual</span>
-              <h2>{currentPatient ? currentPatient.name : 'Sin paciente en consulta'}</h2>
-            </div>
-          </div>
-
-          {currentPatient ? (
-            <div className="waiting-current-card">
-              <div className="field-grid">
-                <Field label="Telefono" value={currentPatient.phone || currentPatient.waId || 'Sin telefono'} />
-                <Field label="Hora de cita" value={currentPatient.appointmentDate ? formatTime(currentPatient.appointmentDate) : 'Sin cita'} />
-                <Field label="Llegada" value={currentPatient.arrivalAt ? formatTime(currentPatient.arrivalAt) : 'Sin registro'} />
-                <Field label="Tratamiento" value={currentPatient.treatment || 'Pendiente'} />
-              </div>
-              <div className="patient-browser-actions">
-                <button className="secondary-button" onClick={() => onOpenLead(currentPatient.id)}>Abrir ficha</button>
-                <button className="primary-button" onClick={() => void handleStatusChange(currentPatient.id, 'finalizada')} disabled={busyLeadId === currentPatient.id}>
-                  {busyLeadId === currentPatient.id ? 'Guardando...' : 'Finalizar'}
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="empty-state empty-state-compact">
-              <h3>No hay consulta en curso</h3>
-              <p>Cuando recepcion marque llegada, podras pasar al paciente desde esta vista.</p>
-            </div>
-          )}
-        </article>
-
-        <article className="panel">
+      {waitingPatients.length > 0 && (
+        <section className="panel">
           <div className="section-head compact">
             <div>
               <span className="eyebrow">Sala de espera</span>
@@ -407,57 +366,24 @@ export function WaitingRoomView({
           </div>
 
           <div className="appointment-list">
-            {waitingPatients.length > 0 ? (
-              waitingPatients.map((lead) => (
-                <article className="appointment-card appointment-card-static" key={lead.id}>
-                  <div>
-                    <strong>{lead.name}</strong>
-                    <span>{lead.appointmentDate ? formatTime(lead.appointmentDate) : 'Sin cita'} · llegó {lead.arrivalAt ? formatTime(lead.arrivalAt) : 'ahora'}</span>
-                    <small>{lead.kioskFlow === 'sin_cita' ? 'Sin cita' : 'Con cita del día'}</small>
-                  </div>
-                  <div className="patient-browser-actions">
-                    <button className="secondary-button" onClick={() => onOpenLead(lead.id)}>Ficha</button>
-                    <button className="primary-button" onClick={() => void handleStatusChange(lead.id, 'en_consulta')} disabled={busyLeadId === lead.id}>
-                      Pasar
-                    </button>
-                  </div>
-                </article>
-              ))
-            ) : (
-              <EmptyCopy title="Sin pacientes en espera" text="No hay llegadas registradas en este momento." compact />
-            )}
-          </div>
-        </article>
-      </section>
-
-      <section className="panel">
-        <div className="section-head compact">
-          <div>
-            <span className="eyebrow">Cerradas</span>
-            <h2>Atenciones finalizadas</h2>
-          </div>
-          <span className="soft-pill">{finishedPatients.length} recientes</span>
-        </div>
-
-        <div className="appointment-list">
-          {finishedPatients.length > 0 ? (
-            finishedPatients.map((lead) => (
-              <button className="appointment-card" key={lead.id} onClick={() => onOpenLead(lead.id)}>
+            {waitingPatients.map((lead) => (
+              <article className="appointment-card appointment-card-static" key={lead.id}>
                 <div>
                   <strong>{lead.name}</strong>
-                  <span>{lead.treatment || 'Consulta finalizada'}</span>
+                  <span>{lead.appointmentDate ? formatTime(lead.appointmentDate) : 'Sin cita'} · llegó {lead.arrivalAt ? formatTime(lead.arrivalAt) : 'ahora'}</span>
+                  <small>{lead.kioskFlow === 'sin_cita' ? 'Sin cita' : 'Con cita del día'}</small>
                 </div>
-                <div className="appointment-card-meta">
-                  <strong>{lead.arrivalAt ? formatTime(lead.arrivalAt) : 'Sin hora'}</strong>
-                  <span>Finalizada</span>
+                <div className="patient-browser-actions">
+                  <button className="secondary-button" onClick={() => onOpenLead(lead.id)}>Ficha</button>
+                  <button className="primary-button" onClick={() => void handleStatusChange(lead.id, 'en_consulta')} disabled={busyLeadId === lead.id}>
+                    Pasar
+                  </button>
                 </div>
-              </button>
-            ))
-          ) : (
-            <EmptyCopy title="Nada finalizado" text="Todavia no se ha cerrado una atencion hoy." compact />
-          )}
-        </div>
-      </section>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   )
 }
@@ -467,15 +393,6 @@ function EmptyCopy({ title, text, compact = false }: { title: string; text: stri
     <div className={compact ? 'empty-state empty-state-compact' : 'empty-state'}>
       <h3>{title}</h3>
       <p>{text}</p>
-    </div>
-  )
-}
-
-function Field({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="field-row">
-      <span>{label}</span>
-      <strong>{value}</strong>
     </div>
   )
 }

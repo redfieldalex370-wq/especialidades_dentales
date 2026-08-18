@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { hasSchedulerUrl, sendToScheduler } from '../services/n8n'
-import { DENTAL_PIPELINE_FALLBACK } from '../services/crm'
 import { getSupabaseConnectionState, testSupabaseConnection } from '../services/supabase'
 
 export function AutomationView() {
@@ -83,40 +82,6 @@ export function AutomationView() {
           </button>
           {supabaseMessage && <div className="integration-message preline">{supabaseMessage}</div>}
         </article>
-
-        <article className="panel integration-card">
-          <div className="integration-icon">TG</div>
-          <div>
-            <span className="eyebrow">Tramo 2</span>
-            <h2>Telegram del doctor</h2>
-          </div>
-          <span className="connection pending">Pendiente</span>
-        </article>
-
-        <article className="panel integration-card">
-          <div className="integration-icon">WA</div>
-          <div>
-            <span className="eyebrow">Tramo 3</span>
-            <h2>Seguimiento WhatsApp</h2>
-          </div>
-          <span className="connection pending">Pendiente</span>
-        </article>
-      </section>
-
-      <section className="panel architecture-note">
-        <span className="eyebrow">Pipeline</span>
-        <h2>Columnas actuales</h2>
-        <div className="pipeline-preview">
-          {DENTAL_PIPELINE_FALLBACK.map((stage) => (
-            <div className="pipeline-stage" key={stage.stage_key}>
-              <span className="stage-dot" style={{ backgroundColor: stage.color }} />
-              <div>
-                <strong>{stage.position}. {stage.name}</strong>
-                <small>{stage.movement_mode === 'automatic' ? 'Automática' : 'Manual'}</small>
-              </div>
-            </div>
-          ))}
-        </div>
       </section>
     </div>
   )

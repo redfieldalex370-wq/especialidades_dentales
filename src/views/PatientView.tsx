@@ -95,10 +95,6 @@ export function PatientView({
           onPhoneSearchChange={setPhoneSearch}
           onOpenLead={onOpenLead}
         />
-
-        <section className="panel empty-record-panel">
-          <button className="secondary-button" onClick={onBackToCrm}>Volver al CRM</button>
-        </section>
       </div>
     )
   }

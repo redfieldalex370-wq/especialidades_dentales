@@ -104,22 +104,25 @@ export function DashboardView({
         <article className="panel">
           <div className="section-head compact">
             <div>
-              <span className="eyebrow">Pipeline</span>
-              <h2>Estado del kanban</h2>
+              <span className="eyebrow">CRM</span>
+              <h2>Pacientes por etapa</h2>
             </div>
             <span className="soft-pill">{stages.length} columnas</span>
           </div>
 
           <div className="pipeline-preview">
-            {stages.map((stage) => (
-              <div className="pipeline-stage" key={stage.stage_key}>
-                <span className="stage-dot" style={{ backgroundColor: stage.color }} />
-                <div>
-                  <strong>{stage.position}. {stage.name}</strong>
-                  <small>{stage.movement_mode === 'automatic' ? 'Automatica' : 'Manual'}</small>
+            {stages.map((stage) => {
+              const count = leads.filter((lead) => lead.stageKey === stage.stage_key).length
+              return (
+                <div className="pipeline-stage" key={stage.stage_key}>
+                  <span className="stage-dot" style={{ backgroundColor: stage.color }} />
+                  <div>
+                    <strong>{stage.position}. {stage.name}</strong>
+                    <small>{count} pacientes</small>
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </article>
       </section>
