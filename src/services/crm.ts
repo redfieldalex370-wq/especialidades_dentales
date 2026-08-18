@@ -158,6 +158,23 @@ function normalizeKioskStatus(...values: unknown[]): KioskLeadStatus {
   }
 }
 
+function normalizeKioskStatusFromEstadoConsulta(value: unknown): KioskLeadStatus {
+  const normalized = stringValue(value).toLowerCase()
+
+  switch (normalized) {
+    case 'en_espera':
+      return 'en_espera'
+    case 'en_consulta':
+      return 'en_consulta'
+    case 'finalizada':
+    case 'consulta_terminada':
+      return 'finalizada'
+    case 'sin_llegada':
+    default:
+      return 'pendiente'
+  }
+}
+
 function normalizeKioskFlow(value: unknown): KioskFlow {
   return stringValue(value) === 'sin_cita' ? 'sin_cita' : 'con_cita'
 }
@@ -230,7 +247,9 @@ export function mapDentalLead(row: RawLead): CrmLead {
   )
   const appointmentConfirmed = Boolean(appointmentDate) && !isCancelledAppointmentValue(appointmentStatus) && isConfirmedAppointmentValue(appointmentStatus || 'pendiente')
   const arrivalAt = stringValue(row.llegada_kiosko_at, raw.arrival_at, raw.checked_in_at)
-  const kioskStatus = normalizeKioskStatus(row.kiosk_status, raw.kiosk_status, arrivalAt ? 'en_espera' : 'pendiente')
+  const consultaInicioAt = stringValue(row.consulta_inicio_at)
+  const consultaFinAt = stringValue(row.consulta_fin_at)
+  const kioskStatus = normalizeKioskStatusFromEstadoConsulta(row.estado_consulta)
   const kioskFlow = normalizeKioskFlow(raw.kiosk_flow ?? (appointmentConfirmed || appointmentDate ? 'con_cita' : 'sin_cita'))
 
   return {
@@ -258,6 +277,8 @@ export function mapDentalLead(row: RawLead): CrmLead {
     kioskStatus,
     kioskFlow,
     arrivalAt,
+    consultaInicioAt,
+    consultaFinAt,
     appointmentConfirmed,
     comments: safeArray(row.comments).map(mapComment),
     tags: safeArray<string>(row.tags).map((tag) => String(tag)),
@@ -441,23 +462,49 @@ export async function updateDentalLeadKioskState(params: {
 }): Promise<CrmLead> {
   const client = requireSupabase()
   const companyKey = params.companyKey ?? resolveCompanyKey(params.lead.companyKey)
-  const arrivalAt = params.arrivalAt ?? params.lead.arrivalAt ?? new Date().toISOString()
+  const now = new Date().toISOString()
+  const arrivalAt = params.arrivalAt ?? params.lead.arrivalAt ?? now
+  const estadoConsultaMap: Record<KioskLeadStatus, string> = {
+    pendiente: 'sin_llegada',
+    en_espera: 'en_espera',
+    en_consulta: 'en_consulta',
+    finalizada: 'finalizada',
+  }
   const rawPayload = {
     ...params.lead.rawPayload,
-    kiosk_status: params.kioskStatus,
     kiosk_flow: params.kioskFlow ?? params.lead.kioskFlow,
-    arrival_at: params.kioskStatus === 'pendiente' ? null : arrivalAt,
     last_kiosk_update_at: new Date().toISOString(),
   }
-  const llegadaKioskoAt = params.kioskStatus === 'pendiente' ? null : arrivalAt
+  const updates: Record<string, unknown> = {
+    estado_consulta: estadoConsultaMap[params.kioskStatus],
+    llegada_kiosko_at: params.kioskStatus === 'pendiente' ? null : arrivalAt,
+    raw_payload: rawPayload,
+    status_cita: params.lead.appointmentStatus || null,
+  }
+
+  if (params.kioskStatus === 'en_consulta') {
+    updates.consulta_inicio_at = params.lead.consultaInicioAt || now
+    updates.consulta_fin_at = null
+  }
+
+  if (params.kioskStatus === 'finalizada') {
+    updates.consulta_inicio_at = params.lead.consultaInicioAt || params.lead.arrivalAt || now
+    updates.consulta_fin_at = now
+  }
+
+  if (params.kioskStatus === 'en_espera') {
+    updates.consulta_inicio_at = null
+    updates.consulta_fin_at = null
+  }
+
+  if (params.kioskStatus === 'pendiente') {
+    updates.consulta_inicio_at = null
+    updates.consulta_fin_at = null
+  }
 
   const { data, error } = await client
     .from(CRM_TABLES.leads)
-    .update({
-      llegada_kiosko_at: llegadaKioskoAt,
-      raw_payload: rawPayload,
-      status_cita: params.lead.appointmentStatus || null,
-    })
+    .update(updates)
     .eq('id', params.lead.id)
     .eq('company_key', companyKey)
     .select('*')
@@ -494,7 +541,6 @@ export async function createDentalWalkInLead(params: {
     telefono: digits,
     nombre_paciente: params.name,
     origen_lead: 'walkin_sin_cita',
-    kiosk_status: 'en_espera',
     kiosk_flow: 'sin_cita',
     arrival_at: now,
     last_kiosk_update_at: now,
@@ -507,6 +553,7 @@ export async function createDentalWalkInLead(params: {
       nombre_paciente: params.name,
       whatsapp_phone: digits || null,
       wa_id: digits || null,
+      estado_consulta: 'en_espera',
       llegada_kiosko_at: now,
       origen_lead: 'walkin_sin_cita',
       source: 'Kiosko',

@@ -62,6 +62,8 @@ export interface CrmLead {
   kioskStatus: KioskLeadStatus
   kioskFlow: KioskFlow
   arrivalAt: string
+  consultaInicioAt: string
+  consultaFinAt: string
   appointmentConfirmed: boolean
   comments: CrmLeadComment[]
   tags: string[]
