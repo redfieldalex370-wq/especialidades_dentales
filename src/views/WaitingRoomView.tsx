@@ -42,48 +42,62 @@ export function WaitingRoomView({
     [calendarAppointments],
   )
 
+  const todayAppointmentLeadIds = useMemo(
+    () => new Set(todayAppointments.map((item) => item.matchedLeadId).filter(Boolean)),
+    [todayAppointments],
+  )
+
+  const todayScheduledLeads = useMemo(
+    () =>
+      leads
+        .filter((lead) => todayAppointmentLeadIds.has(lead.id))
+        .sort((a, b) => compareByAppointment(a, b)),
+    [leads, todayAppointmentLeadIds],
+  )
+
   const currentPatient = useMemo(
     () =>
       [...leads]
-        .filter((lead) => lead.kioskStatus === 'en_consulta')
+        .filter((lead) => lead.kioskStatus === 'en_consulta' && isRelevantForToday(lead, todayAppointmentLeadIds))
         .sort((a, b) => compareByArrival(a, b))[0] ?? null,
-    [leads],
+    [leads, todayAppointmentLeadIds],
   )
 
   const waitingPatients = useMemo(
     () =>
       [...leads]
-        .filter((lead) => lead.kioskStatus === 'en_espera')
-        .sort((a, b) => compareByArrival(a, b)),
-    [leads],
+        .filter((lead) => lead.kioskStatus === 'en_espera' && isRelevantForToday(lead, todayAppointmentLeadIds))
+        .sort((a, b) => compareWaitingOrder(a, b)),
+    [leads, todayAppointmentLeadIds],
   )
 
   const finishedPatients = useMemo(
     () =>
       [...leads]
-        .filter((lead) => lead.kioskStatus === 'finalizada')
-        .sort((a, b) => compareByArrival(b, a))
+        .filter((lead) => lead.kioskStatus === 'finalizada' && isRelevantForToday(lead, todayAppointmentLeadIds))
+        .sort((a, b) => compareRecentActivity(b, a))
         .slice(0, 6),
-    [leads],
+    [leads, todayAppointmentLeadIds],
   )
 
   const walkInPatients = useMemo(
     () =>
       [...leads]
-        .filter((lead) => lead.kioskFlow === 'sin_cita' && lead.kioskStatus !== 'finalizada')
-        .sort((a, b) => compareByArrival(a, b))
+        .filter((lead) => lead.kioskFlow === 'sin_cita' && lead.kioskStatus !== 'finalizada' && isTodayLead(lead))
+        .sort((a, b) => compareWaitingOrder(a, b))
         .slice(0, 8),
     [leads],
   )
+
+  const arrivedTodayCount = waitingPatients.length + (currentPatient ? 1 : 0) + finishedPatients.length
+  const pendingTodayCount = todayScheduledLeads.filter((lead) => lead.kioskStatus === 'pendiente').length
 
   const visiblePatients = useMemo(() => {
     const normalizedName = deferredNameSearch.trim().toLowerCase()
     const normalizedPhone = deferredPhoneSearch.trim().replace(/\D/g, '')
     if (!normalizedName && !normalizedPhone) return []
 
-    const source = mode === 'con_cita'
-      ? leads.filter((lead) => todayAppointments.some((item) => item.matchedLeadId === lead.id))
-      : leads
+    const source = mode === 'con_cita' ? todayScheduledLeads : leads.filter((lead) => isTodayLead(lead) || lead.kioskFlow === 'sin_cita')
 
     return source
       .filter((lead) => {
@@ -94,7 +108,7 @@ export function WaitingRoomView({
       })
       .sort((a, b) => comparePreferred(a, b))
       .slice(0, 8)
-  }, [deferredNameSearch, deferredPhoneSearch, leads, mode, todayAppointments])
+  }, [deferredNameSearch, deferredPhoneSearch, leads, mode, todayScheduledLeads])
 
   async function handleArrival(lead: CrmLead, kioskFlow: KioskFlow) {
     setBusyLeadId(lead.id)
@@ -244,6 +258,29 @@ export function WaitingRoomView({
       </section>
 
       <section className="crm-dashboard-grid waiting-room-grid">
+        <article className="panel waiting-summary-panel">
+          <div className="waiting-summary-grid">
+            <div className="waiting-summary-card">
+              <span>Citas de hoy</span>
+              <strong>{todayAppointments.length}</strong>
+            </div>
+            <div className="waiting-summary-card">
+              <span>Ya llegaron</span>
+              <strong>{arrivedTodayCount}</strong>
+            </div>
+            <div className="waiting-summary-card">
+              <span>En consulta</span>
+              <strong>{currentPatient ? 1 : 0}</strong>
+            </div>
+            <div className="waiting-summary-card">
+              <span>Pendientes</span>
+              <strong>{pendingTodayCount}</strong>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section className="crm-dashboard-grid waiting-room-grid">
         <article className="panel">
           <div className="section-head compact">
             <div>
@@ -256,21 +293,38 @@ export function WaitingRoomView({
           <div className="appointment-list">
             {todayAppointments.length > 0 ? (
               todayAppointments.map((appointment) => (
-                <button
-                  className={`appointment-card appointment-card-match-${appointment.matchedLeadId ? 'yes' : 'no'}`}
+                <article
+                  className={`appointment-card appointment-card-static appointment-card-match-${appointment.matchedLeadId ? 'yes' : 'no'}`}
                   key={appointment.id}
-                  onClick={() => {
-                    if (appointment.matchedLeadId) onOpenLead(appointment.matchedLeadId)
-                  }}
                 >
                   <div>
                     <strong>{appointment.patientName || appointment.title}</strong>
                     <span>{appointment.title}</span>
+                    <small>{labelForAppointmentState(findLeadById(leads, appointment.matchedLeadId)?.kioskStatus ?? 'pendiente')}</small>
                   </div>
                   <div className="appointment-card-meta">
                     <strong>{formatDateTime(appointment.start)}</strong>
                   </div>
-                </button>
+                  <div className="patient-browser-actions">
+                    {appointment.matchedLeadId ? (
+                      <>
+                        <button className="secondary-button" onClick={() => onOpenLead(appointment.matchedLeadId)}>Ficha</button>
+                        <button
+                          className="primary-button"
+                          onClick={() => {
+                            const matchedLead = findLeadById(leads, appointment.matchedLeadId)
+                            if (matchedLead) void handleArrival(matchedLead, 'con_cita')
+                          }}
+                          disabled={busyLeadId === appointment.matchedLeadId}
+                        >
+                          {busyLeadId === appointment.matchedLeadId ? 'Guardando...' : 'Ya llegó'}
+                        </button>
+                      </>
+                    ) : (
+                      <button className="secondary-button" disabled>Sin ficha</button>
+                    )}
+                  </div>
+                </article>
               ))
             ) : (
               <EmptyCopy title="Sin citas del dia" text="No hay pacientes agendados para hoy." compact />
@@ -294,6 +348,7 @@ export function WaitingRoomView({
                   <div>
                     <strong>{lead.name}</strong>
                     <span>{lead.phone || lead.waId || 'Sin telefono'}</span>
+                    <small>{lead.arrivalAt ? `Llegó ${formatTime(lead.arrivalAt)}` : 'Pendiente de recepción'}</small>
                   </div>
                   <div className="patient-browser-actions">
                     <button className="secondary-button" onClick={() => onOpenLead(lead.id)}>Ficha</button>
@@ -358,6 +413,7 @@ export function WaitingRoomView({
                   <div>
                     <strong>{lead.name}</strong>
                     <span>{lead.appointmentDate ? formatTime(lead.appointmentDate) : 'Sin cita'} · llegó {lead.arrivalAt ? formatTime(lead.arrivalAt) : 'ahora'}</span>
+                    <small>{lead.kioskFlow === 'sin_cita' ? 'Sin cita' : 'Con cita del día'}</small>
                   </div>
                   <div className="patient-browser-actions">
                     <button className="secondary-button" onClick={() => onOpenLead(lead.id)}>Ficha</button>
@@ -453,14 +509,57 @@ function compareByArrival(left: CrmLead, right: CrmLead): number {
   return leftTime - rightTime
 }
 
+function compareByAppointment(left: CrmLead, right: CrmLead): number {
+  const leftTime = left.appointmentDate ? new Date(left.appointmentDate).getTime() : Number.POSITIVE_INFINITY
+  const rightTime = right.appointmentDate ? new Date(right.appointmentDate).getTime() : Number.POSITIVE_INFINITY
+  return leftTime - rightTime
+}
+
+function compareRecentActivity(left: CrmLead, right: CrmLead): number {
+  const leftTime = left.updatedAt ? new Date(left.updatedAt).getTime() : 0
+  const rightTime = right.updatedAt ? new Date(right.updatedAt).getTime() : 0
+  return leftTime - rightTime
+}
+
+function compareWaitingOrder(left: CrmLead, right: CrmLead): number {
+  const arrivalDiff = compareByArrival(left, right)
+  if (arrivalDiff !== 0) return arrivalDiff
+  return compareByAppointment(left, right)
+}
+
 function comparePreferred(left: CrmLead, right: CrmLead): number {
   const leftScore = left.appointmentConfirmed ? 0 : 1
   const rightScore = right.appointmentConfirmed ? 0 : 1
   if (leftScore !== rightScore) return leftScore - rightScore
-  return compareByArrival(left, right)
+  return compareWaitingOrder(left, right)
 }
 
 function isActiveCalendarAppointment(status: string): boolean {
   const normalized = status.toLowerCase()
   return !normalized.includes('cancel')
+}
+
+function isTodayLead(lead: CrmLead): boolean {
+  return [lead.arrivalAt, lead.appointmentDate, lead.createdAt, lead.updatedAt].some((value) => value && isSameDay(value, new Date()))
+}
+
+function isRelevantForToday(lead: CrmLead, todayAppointmentLeadIds: Set<string>): boolean {
+  return todayAppointmentLeadIds.has(lead.id) || isTodayLead(lead)
+}
+
+function labelForAppointmentState(status: KioskLeadStatus): string {
+  switch (status) {
+    case 'en_espera':
+      return 'Ya llegó'
+    case 'en_consulta':
+      return 'En consulta'
+    case 'finalizada':
+      return 'Finalizada'
+    default:
+      return 'Pendiente'
+  }
+}
+
+function findLeadById(leads: CrmLead[], leadId: string): CrmLead | null {
+  return leads.find((lead) => lead.id === leadId) ?? null
 }

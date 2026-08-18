@@ -611,6 +611,41 @@ code { background: #edf4f6; padding: 2px 6px; border-radius: 6px; font-size: .88
   grid-template-columns: 1fr 1fr;
 }
 
+.waiting-summary-panel {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.waiting-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.waiting-summary-card {
+  background: var(--panel);
+  border: 1px solid rgba(255,255,255,.9);
+  border-radius: 22px;
+  box-shadow: var(--shadow);
+  padding: 22px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.waiting-summary-card span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.waiting-summary-card strong {
+  font-size: 52px;
+  line-height: 1;
+  letter-spacing: -.05em;
+}
+
 .waiting-current-card {
   display: flex;
   flex-direction: column;
@@ -624,6 +659,10 @@ code { background: #edf4f6; padding: 2px 6px; border-radius: 6px; font-size: .88
 @media (max-width: 1050px) {
   .crm-dashboard-grid,
   .waiting-room-grid { grid-template-columns: 1fr; }
+
+  .waiting-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 760px) {
@@ -642,6 +681,10 @@ code { background: #edf4f6; padding: 2px 6px; border-radius: 6px; font-size: .88
   .patient-browser-row,
   .patient-browser-card {
     grid-template-columns: 1fr;
+  }
+
+  .waiting-summary-grid {
+    grid-template-columns: 1fr 1fr;
   }
 
   .patient-browser-actions {
