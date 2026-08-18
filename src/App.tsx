@@ -6,11 +6,8 @@ import { PatientView } from './views/PatientView'
 import { WaitingRoomView } from './views/WaitingRoomView'
 import type { CalendarAppointment, CrmLead, CrmLeadDetail, CrmStage, DentalLeadDetailUpdate, KioskFlow, KioskLeadStatus } from './types'
 import {
-  AVAILABLE_COMPANIES,
-  type CrmCompanyKey,
   createDentalWalkInLead,
   DENTAL_PIPELINE_FALLBACK,
-  DEFAULT_CRM_COMPANY_KEY,
   getDentalLeadDetail,
   getDentalPipelineStages,
   listDentalCrmLeads,
@@ -22,7 +19,7 @@ import { isGoogleCalendarConfigured, listCalendarAppointments } from './services
 
 export default function App() {
   const [view, setView] = useState<ViewKey>('dashboard')
-  const [companyKey, setCompanyKey] = useState<CrmCompanyKey>(DEFAULT_CRM_COMPANY_KEY)
+  const companyKey = 'especialidades-dentales'
   const [crmLeads, setCrmLeads] = useState<CrmLead[]>([])
   const [crmStages, setCrmStages] = useState<CrmStage[]>(DENTAL_PIPELINE_FALLBACK)
   const [selectedLeadId, setSelectedLeadId] = useState('')
@@ -95,7 +92,7 @@ export default function App() {
 
   useEffect(() => {
     void loadCrm()
-  }, [companyKey])
+  }, [])
 
   useEffect(() => {
     if (crmLeads.length > 0) {
@@ -115,7 +112,7 @@ export default function App() {
     }, 30_000)
 
     return () => window.clearInterval(timer)
-  }, [companyKey, selectedLeadId, crmLeads])
+  }, [selectedLeadId, crmLeads])
 
   const selectedLead = useMemo(
     () => crmLeads.find((lead) => lead.id === selectedLeadId) ?? null,
@@ -152,7 +149,7 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [selectedLeadId, companyKey])
+  }, [selectedLeadId])
 
   async function handleSaveLeadDetail(leadId: string, input: DentalLeadDetailUpdate) {
     const lead = crmLeads.find((item) => item.id === leadId)
@@ -248,10 +245,7 @@ export default function App() {
     setView('patient')
   }
 
-  const topbarLabel = crmLoading
-    ? 'Sincronizando'
-    : `${crmLeads.length} pacientes en CRM`
-  const activeCompany = AVAILABLE_COMPANIES.find((item) => item.key === companyKey)
+  const topbarLabel = crmLoading ? 'Sincronizando' : `${crmLeads.length} pacientes en CRM`
 
   return (
     <div className="app-shell">
@@ -259,17 +253,10 @@ export default function App() {
       <main className="main-area">
         <header className="topbar">
           <div>
-            <span className="topbar-kicker">{activeCompany?.label ?? companyKey}</span>
+            <span className="topbar-kicker">Especialidades Dentales</span>
             <strong>CRM de citas y seguimiento</strong>
           </div>
           <div className="topbar-actions">
-            <select className="company-select" value={companyKey} onChange={(event) => { setSelectedLeadId(''); setCompanyKey(event.target.value as CrmCompanyKey) }}>
-              {AVAILABLE_COMPANIES.map((company) => (
-                <option value={company.key} key={company.key}>
-                  {company.label}
-                </option>
-              ))}
-            </select>
             <button className="date-chip date-chip-button" onClick={() => void loadCrm()} disabled={crmLoading}>
               {topbarLabel}
             </button>
