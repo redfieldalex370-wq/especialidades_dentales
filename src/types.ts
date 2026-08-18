@@ -1,4 +1,6 @@
 export type PatientStatus = 'en_espera' | 'en_consulta' | 'consulta_terminada'
+export type KioskLeadStatus = 'pendiente' | 'en_espera' | 'en_consulta' | 'finalizada'
+export type KioskFlow = 'con_cita' | 'sin_cita'
 export type LeadOrigin =
   | 'campana_meta'
   | 'campana_google'
@@ -57,6 +59,10 @@ export interface CrmLead {
   reminderCompleted: boolean
   lastMessage: string
   lastContactAt: string
+  kioskStatus: KioskLeadStatus
+  kioskFlow: KioskFlow
+  arrivalAt: string
+  appointmentConfirmed: boolean
   comments: CrmLeadComment[]
   tags: string[]
   rawPayload: Record<string, unknown>

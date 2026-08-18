@@ -1,27 +1,27 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Sidebar, type ViewKey } from './components/Sidebar'
-import { initialPatients } from './data/mockData'
 import { AutomationView } from './views/AutomationView'
 import { DashboardView } from './views/DashboardView'
 import { PatientView } from './views/PatientView'
 import { WaitingRoomView } from './views/WaitingRoomView'
-import type { CrmLead, CrmLeadDetail, CrmStage, DentalLeadDetailUpdate, Patient } from './types'
+import type { CrmLead, CrmLeadDetail, CrmStage, DentalLeadDetailUpdate, KioskFlow, KioskLeadStatus } from './types'
 import {
   AVAILABLE_COMPANIES,
   type CrmCompanyKey,
+  createDentalWalkInLead,
   DENTAL_PIPELINE_FALLBACK,
   DEFAULT_CRM_COMPANY_KEY,
   getDentalLeadDetail,
   getDentalPipelineStages,
   listDentalCrmLeads,
   updateDentalLeadDetail,
+  updateDentalLeadKioskState,
   updateDentalLeadStage,
 } from './services/crm'
 
 export default function App() {
   const [view, setView] = useState<ViewKey>('dashboard')
   const [companyKey, setCompanyKey] = useState<CrmCompanyKey>(DEFAULT_CRM_COMPANY_KEY)
-  const [patients, setPatients] = useState<Patient[]>(initialPatients)
   const [crmLeads, setCrmLeads] = useState<CrmLead[]>([])
   const [crmStages, setCrmStages] = useState<CrmStage[]>(DENTAL_PIPELINE_FALLBACK)
   const [selectedLeadId, setSelectedLeadId] = useState('')
@@ -71,6 +71,17 @@ export default function App() {
   useEffect(() => {
     void loadCrm()
   }, [companyKey])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void loadCrm()
+      if (selectedLeadId) {
+        void loadLeadDetail(selectedLeadId)
+      }
+    }, 30_000)
+
+    return () => window.clearInterval(timer)
+  }, [companyKey, selectedLeadId])
 
   const selectedLead = useMemo(
     () => crmLeads.find((lead) => lead.id === selectedLeadId) ?? null,
@@ -151,6 +162,53 @@ export default function App() {
     }
   }
 
+  async function handleUpdateKioskStatus(leadId: string, kioskStatus: KioskLeadStatus, kioskFlow?: KioskFlow) {
+    const lead = crmLeads.find((item) => item.id === leadId)
+    if (!lead) throw new Error('No encontramos al paciente que quieres mover en kiosko.')
+
+    const saved = await updateDentalLeadKioskState({
+      lead,
+      companyKey,
+      kioskStatus,
+      kioskFlow,
+      arrivalAt: kioskStatus === 'pendiente' ? '' : lead.arrivalAt || new Date().toISOString(),
+    })
+
+    setCrmLeads((current) => current.map((item) => (item.id === leadId ? saved : item)))
+
+    if (selectedLeadId === leadId) {
+      await loadLeadDetail(leadId)
+    }
+  }
+
+  async function handleRegisterWalkIn(name: string, phone: string) {
+    const digits = phone.replace(/\D/g, '')
+    const existing = crmLeads.find((item) => {
+      const haystack = `${item.phone} ${item.waId}`.replace(/\D/g, '')
+      return digits && haystack.includes(digits)
+    })
+
+    if (existing) {
+      const saved = await updateDentalLeadKioskState({
+        lead: existing,
+        companyKey,
+        kioskStatus: 'en_espera',
+        kioskFlow: 'sin_cita',
+      })
+      setCrmLeads((current) => current.map((item) => (item.id === existing.id ? saved : item)))
+      return saved
+    }
+
+    const created = await createDentalWalkInLead({
+      companyKey,
+      name,
+      phone,
+    })
+
+    setCrmLeads((current) => [created, ...current])
+    return created
+  }
+
   function openLead(leadId: string) {
     setSelectedLeadId(leadId)
     setView('patient')
@@ -200,7 +258,16 @@ export default function App() {
               onRefresh={() => void loadCrm()}
             />
           )}
-          {view === 'waiting' && <WaitingRoomView patients={patients} setPatients={setPatients} />}
+          {view === 'waiting' && (
+            <WaitingRoomView
+              leads={crmLeads}
+              loading={crmLoading}
+              onRefresh={() => void loadCrm()}
+              onOpenLead={openLead}
+              onRegisterWalkIn={handleRegisterWalkIn}
+              onUpdateLeadStatus={handleUpdateKioskStatus}
+            />
+          )}
           {view === 'patient' && (
             <PatientView
               lead={selectedLead}

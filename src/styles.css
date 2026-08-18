@@ -359,8 +359,22 @@ code { background: #edf4f6; padding: 2px 6px; border-radius: 6px; font-size: .88
 }
 
 .patient-browser-main span,
-.patient-browser-date strong {
+.patient-browser-date strong,
+.patient-browser-date span {
   color: var(--muted);
+}
+
+.patient-browser-card {
+  grid-template-columns: 1.1fr .7fr auto;
+  gap: 16px;
+}
+
+.patient-browser-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
 }
 
 .crm-board-panel {
@@ -536,8 +550,61 @@ code { background: #edf4f6; padding: 2px 6px; border-radius: 6px; font-size: .88
   gap: 10px;
 }
 
+.kiosk-entry-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.kiosk-mode-switch {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.mode-pill {
+  border: 1px solid #d5e5e6;
+  background: #f7fbfc;
+  color: #355a63;
+  padding: 10px 14px;
+  border-radius: 999px;
+  font-weight: 800;
+}
+
+.mode-pill.active {
+  background: linear-gradient(135deg, #0f766e, #11998e);
+  color: white;
+  border-color: transparent;
+}
+
+.kiosk-search-block {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.inline-helper {
+  margin: 0;
+  color: #43646d;
+}
+
+.waiting-room-grid {
+  grid-template-columns: 1fr 1fr;
+}
+
+.waiting-current-card {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.appointment-card-static {
+  cursor: default;
+}
+
 @media (max-width: 1050px) {
-  .crm-dashboard-grid { grid-template-columns: 1fr; }
+  .crm-dashboard-grid,
+  .waiting-room-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 760px) {
@@ -553,7 +620,12 @@ code { background: #edf4f6; padding: 2px 6px; border-radius: 6px; font-size: .88
     grid-template-columns: repeat(7, minmax(230px, 1fr));
   }
 
-  .patient-browser-row {
+  .patient-browser-row,
+  .patient-browser-card {
     grid-template-columns: 1fr;
+  }
+
+  .patient-browser-actions {
+    justify-content: flex-start;
   }
 }

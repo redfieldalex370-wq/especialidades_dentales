@@ -7,6 +7,8 @@ import type {
   CrmLeadDetail,
   CrmStage,
   DentalLeadDetailUpdate,
+  KioskFlow,
+  KioskLeadStatus,
   LeadOrigin,
   TraceabilityEvent,
 } from '../types'
@@ -147,6 +149,31 @@ function normalizeOrigin(value: string): LeadOrigin {
   }
 }
 
+function normalizeKioskStatus(value: unknown): KioskLeadStatus {
+  const normalized = stringValue(value).toLowerCase()
+
+  switch (normalized) {
+    case 'en_espera':
+    case 'en consulta':
+    case 'en_consulta':
+      return normalized.replace(' ', '_') as KioskLeadStatus
+    case 'consulta_terminada':
+    case 'finalizada':
+      return 'finalizada'
+    default:
+      return 'pendiente'
+  }
+}
+
+function normalizeKioskFlow(value: unknown): KioskFlow {
+  return stringValue(value) === 'sin_cita' ? 'sin_cita' : 'con_cita'
+}
+
+function isConfirmedAppointmentValue(value: string): boolean {
+  const normalized = value.toLowerCase()
+  return normalized.includes('confirm') || normalized.includes('agendada') || normalized.includes('valoracion_confirmada')
+}
+
 function placeholderName(row: RawLead, raw: Record<string, unknown>): string {
   const suffix = stringValue(row.wa_id, row.whatsapp_phone, row.subscriber_id, raw.telefono).replace(/\D/g, '').slice(-4)
   return suffix ? `Paciente ${suffix}` : 'Paciente sin nombre'
@@ -222,6 +249,7 @@ export function mapDentalLead(row: RawLead): CrmLead {
   const phone = stringValue(row.whatsapp_phone, row.telefono, raw.telefono)
   const waId = stringValue(row.wa_id, row.subscriber_id, phone, raw.wa_id, raw.telefono)
   const appointmentDate = stringValue(row.fecha_cita, raw.fecha_cita, raw.proxima_cita_sugerida)
+  const appointmentStatus = stringValue(row.status_cita, raw.status_cita)
   const treatment = stringValue(
     row.service,
     raw.tratamiento_propuesto,
@@ -229,6 +257,10 @@ export function mapDentalLead(row: RawLead): CrmLead {
     raw.motivo_consulta,
     raw.tratamiento,
   )
+  const appointmentConfirmed = isConfirmedAppointmentValue(appointmentStatus)
+  const arrivalAt = stringValue(raw.arrival_at, raw.checked_in_at)
+  const kioskStatus = normalizeKioskStatus(raw.kiosk_status)
+  const kioskFlow = normalizeKioskFlow(raw.kiosk_flow ?? (appointmentConfirmed || appointmentDate ? 'con_cita' : 'sin_cita'))
 
   return {
     id: stringValue(row.id) || waId || crypto.randomUUID(),
@@ -241,7 +273,7 @@ export function mapDentalLead(row: RawLead): CrmLead {
     stageLocked: Boolean(row.stage_locked),
     stageOrigin: stringValue(row.stage_origin) || 'automation',
     appointmentDate,
-    appointmentStatus: stringValue(row.status_cita, raw.status_cita),
+    appointmentStatus,
     origin: normalizeOrigin(stringValue(row.origen_lead, raw.origen_lead)),
     source: stringValue(row.source, raw.fuente) || 'WhatsApp',
     assignedTo: stringValue(row.assigned_to),
@@ -252,6 +284,10 @@ export function mapDentalLead(row: RawLead): CrmLead {
     reminderCompleted: Boolean(row.reminder_completed),
     lastMessage: stringValue(row.ultimo_mensaje_cliente, raw.ultimo_mensaje),
     lastContactAt: stringValue(row.last_activity_at, row.source_updated_at, row.updated_at, row.created_at),
+    kioskStatus,
+    kioskFlow,
+    arrivalAt,
+    appointmentConfirmed,
     comments: safeArray(row.comments).map(mapComment),
     tags: safeArray<string>(row.tags).map((tag) => String(tag)),
     rawPayload: raw,
@@ -289,6 +325,8 @@ export async function listDentalLeads(limit = 100, companyKey: CrmCompanyKey = D
     .from(CRM_TABLES.leads)
     .select('*')
     .eq('company_key', companyKey)
+    .order('fecha_cita', { ascending: true, nullsFirst: false })
+    .order('updated_at', { ascending: false })
     .limit(limit)
 
   if (error) throw error
@@ -416,6 +454,29 @@ export async function getDentalLeadDetail(leadId: string, companyKey: CrmCompany
 
 export async function updateDentalLeadDetail(lead: CrmLead, input: DentalLeadDetailUpdate): Promise<CrmLeadDetail> {
   const client = requireSupabase()
+  const nextAppointmentDate = input.commercialCase.proximaCitaSugerida || lead.appointmentDate || null
+  const nextAppointmentStatus = nextAppointmentDate ? lead.appointmentStatus || 'cita_confirmada' : lead.appointmentStatus || null
+  const mergedRawPayload = {
+    ...lead.rawPayload,
+    motivo_consulta: input.clinicalRecord.motivoConsulta || null,
+    diagnostico: input.clinicalRecord.diagnostico || null,
+    tratamiento_propuesto: input.clinicalRecord.tratamientoPropuesto || null,
+    especialidad: input.clinicalRecord.especialidad || null,
+    piezas_involucradas: input.clinicalRecord.piezasInvolucradas || null,
+    notas_evolucion: input.clinicalRecord.notasEvolucion || null,
+    costo_cotizado: input.commercialCase.costoCotizado,
+    promocion_aplicada: input.commercialCase.promocionAplicada || null,
+    objeciones: input.commercialCase.objeciones || null,
+    indicacion_seguimiento: input.commercialCase.indicacionSeguimiento || null,
+    proxima_cita_sugerida: nextAppointmentDate,
+    fecha_cita: nextAppointmentDate,
+    status_cita: nextAppointmentStatus,
+    estado: input.commercialCase.estado || null,
+    monto_cerrado: input.commercialCase.montoCerrado,
+    cerrado_por: input.commercialCase.cerradoPor || null,
+    escalado_closer: input.commercialCase.escaladoCloser,
+    escalado_motivo: input.commercialCase.escaladoMotivo || null,
+  }
 
   const clinicalPayload = {
     lead_id: lead.id,
@@ -455,5 +516,91 @@ export async function updateDentalLeadDetail(lead: CrmLead, input: DentalLeadDet
   if (clinicalResult.error) throw clinicalResult.error
   if (commercialResult.error) throw commercialResult.error
 
+  const { error: leadError } = await client
+    .from(CRM_TABLES.leads)
+    .update({
+      fecha_cita: nextAppointmentDate,
+      status_cita: nextAppointmentStatus,
+      nombre_paciente: lead.name || null,
+      whatsapp_phone: lead.phone || null,
+      raw_payload: mergedRawPayload,
+    })
+    .eq('id', lead.id)
+    .eq('company_key', resolveCompanyKey(lead.companyKey))
+
+  if (leadError) throw leadError
+
   return getDentalLeadDetail(lead.id, resolveCompanyKey(lead.companyKey))
+}
+
+export async function updateDentalLeadKioskState(params: {
+  lead: CrmLead
+  companyKey?: CrmCompanyKey
+  kioskStatus: KioskLeadStatus
+  kioskFlow?: KioskFlow
+  arrivalAt?: string
+}): Promise<CrmLead> {
+  const client = requireSupabase()
+  const companyKey = params.companyKey ?? resolveCompanyKey(params.lead.companyKey)
+  const arrivalAt = params.arrivalAt ?? params.lead.arrivalAt ?? new Date().toISOString()
+  const rawPayload = {
+    ...params.lead.rawPayload,
+    kiosk_status: params.kioskStatus,
+    kiosk_flow: params.kioskFlow ?? params.lead.kioskFlow,
+    arrival_at: params.kioskStatus === 'pendiente' ? null : arrivalAt,
+    last_kiosk_update_at: new Date().toISOString(),
+  }
+
+  const { data, error } = await client
+    .from(CRM_TABLES.leads)
+    .update({
+      raw_payload: rawPayload,
+      status_cita: params.lead.appointmentStatus || null,
+    })
+    .eq('id', params.lead.id)
+    .eq('company_key', companyKey)
+    .select('*')
+    .single()
+
+  if (error) throw error
+  return mapDentalLead(data as RawLead)
+}
+
+export async function createDentalWalkInLead(params: {
+  companyKey?: CrmCompanyKey
+  name: string
+  phone: string
+}): Promise<CrmLead> {
+  const client = requireSupabase()
+  const now = new Date().toISOString()
+  const companyKey = params.companyKey ?? DEFAULT_CRM_COMPANY_KEY
+  const digits = params.phone.replace(/\D/g, '')
+  const rawPayload = {
+    telefono: digits,
+    nombre_paciente: params.name,
+    origen_lead: 'walkin_sin_cita',
+    kiosk_status: 'en_espera',
+    kiosk_flow: 'sin_cita',
+    arrival_at: now,
+    last_kiosk_update_at: now,
+  }
+
+  const { data, error } = await client
+    .from(CRM_TABLES.leads)
+    .insert({
+      company_key: companyKey,
+      nombre_paciente: params.name,
+      whatsapp_phone: digits || null,
+      wa_id: digits || null,
+      origen_lead: 'walkin_sin_cita',
+      source: 'Kiosko',
+      kanban_stage: 'contactos_nuevos',
+      status_cita: 'sin_cita',
+      raw_payload: rawPayload,
+    })
+    .select('*')
+    .single()
+
+  if (error) throw error
+  return mapDentalLead(data as RawLead)
 }

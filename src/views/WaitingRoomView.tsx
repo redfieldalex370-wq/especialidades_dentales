@@ -1,124 +1,450 @@
-import { FormEvent, useMemo, useState, type Dispatch, type SetStateAction } from 'react'
-import type { Patient } from '../types'
-import { StatusBadge } from '../components/StatusBadge'
+import { FormEvent, useDeferredValue, useMemo, useState } from 'react'
+import type { CrmLead, KioskFlow, KioskLeadStatus } from '../types'
 
 interface Props {
-  patients: Patient[]
-  setPatients: Dispatch<SetStateAction<Patient[]>>
+  leads: CrmLead[]
+  loading: boolean
+  onRefresh: () => void
+  onOpenLead: (leadId: string) => void
+  onRegisterWalkIn: (name: string, phone: string) => Promise<CrmLead>
+  onUpdateLeadStatus: (leadId: string, kioskStatus: KioskLeadStatus, kioskFlow?: KioskFlow) => Promise<void>
 }
 
-export function WaitingRoomView({ patients, setPatients }: Props) {
-  const [name, setName] = useState('')
-  const [phone, setPhone] = useState('')
+export function WaitingRoomView({
+  leads,
+  loading,
+  onRefresh,
+  onOpenLead,
+  onRegisterWalkIn,
+  onUpdateLeadStatus,
+}: Props) {
+  const [mode, setMode] = useState<KioskFlow>('con_cita')
+  const [nameSearch, setNameSearch] = useState('')
+  const [phoneSearch, setPhoneSearch] = useState('')
+  const [walkInName, setWalkInName] = useState('')
+  const [walkInPhone, setWalkInPhone] = useState('')
+  const [actionMessage, setActionMessage] = useState('')
+  const [busyLeadId, setBusyLeadId] = useState('')
+  const [submittingWalkIn, setSubmittingWalkIn] = useState(false)
 
-  const current = patients.find((p) => p.status === 'en_consulta')
-  const waiting = useMemo(
-    () => patients.filter((p) => p.status === 'en_espera').sort((a, b) => a.arrivalTime.localeCompare(b.arrivalTime)),
-    [patients],
+  const deferredNameSearch = useDeferredValue(nameSearch)
+  const deferredPhoneSearch = useDeferredValue(phoneSearch)
+
+  const todayAppointments = useMemo(
+    () =>
+      leads
+        .filter((lead) => lead.appointmentDate && lead.appointmentConfirmed && isSameDay(lead.appointmentDate, new Date()))
+        .sort((a, b) => new Date(a.appointmentDate).getTime() - new Date(b.appointmentDate).getTime()),
+    [leads],
   )
 
-  function callNext() {
-    if (current || waiting.length === 0) return
-    const next = waiting[0]
-    setPatients((list) => list.map((p) => (p.waId === next.waId ? { ...p, status: 'en_consulta' } : p)))
+  const visiblePatients = useMemo(() => {
+    const normalizedName = deferredNameSearch.trim().toLowerCase()
+    const normalizedPhone = deferredPhoneSearch.trim().replace(/\D/g, '')
+    if (!normalizedName && !normalizedPhone) return []
+
+    const source = mode === 'con_cita' ? leads.filter((lead) => lead.appointmentDate) : leads
+
+    return source
+      .filter((lead) => {
+        const matchesName = normalizedName ? lead.name.toLowerCase().includes(normalizedName) : true
+        const phoneHaystack = `${lead.phone} ${lead.waId}`.replace(/\D/g, '')
+        const matchesPhone = normalizedPhone ? phoneHaystack.includes(normalizedPhone) : true
+        return matchesName && matchesPhone
+      })
+      .sort((a, b) => comparePreferred(a, b))
+      .slice(0, 8)
+  }, [deferredNameSearch, deferredPhoneSearch, leads, mode])
+
+  const currentPatient = useMemo(
+    () =>
+      [...leads]
+        .filter((lead) => lead.kioskStatus === 'en_consulta')
+        .sort((a, b) => compareByArrival(a, b))[0] ?? null,
+    [leads],
+  )
+
+  const waitingPatients = useMemo(
+    () =>
+      [...leads]
+        .filter((lead) => lead.kioskStatus === 'en_espera')
+        .sort((a, b) => compareByArrival(a, b)),
+    [leads],
+  )
+
+  const finishedPatients = useMemo(
+    () =>
+      [...leads]
+        .filter((lead) => lead.kioskStatus === 'finalizada')
+        .sort((a, b) => compareByArrival(b, a))
+        .slice(0, 6),
+    [leads],
+  )
+
+  const pendingToday = useMemo(
+    () =>
+      todayAppointments.filter((lead) => lead.kioskStatus === 'pendiente')
+        .slice(0, 8),
+    [todayAppointments],
+  )
+
+  async function handleArrival(lead: CrmLead, kioskFlow: KioskFlow) {
+    setBusyLeadId(lead.id)
+    setActionMessage('')
+
+    try {
+      await onUpdateLeadStatus(lead.id, 'en_espera', kioskFlow)
+      setActionMessage(`Llegada registrada para ${lead.name}.`)
+      setNameSearch('')
+      setPhoneSearch('')
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : 'No se pudo registrar la llegada.')
+    } finally {
+      setBusyLeadId('')
+    }
   }
 
-  function finishCurrent() {
-    if (!current) return
-    setPatients((list) => list.map((p) => (p.waId === current.waId ? { ...p, status: 'consulta_terminada' } : p)))
+  async function handleStatusChange(leadId: string, status: KioskLeadStatus) {
+    setBusyLeadId(leadId)
+    setActionMessage('')
+
+    try {
+      await onUpdateLeadStatus(leadId, status)
+      setActionMessage('Estado actualizado en Supabase.')
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : 'No se pudo actualizar el estado.')
+    } finally {
+      setBusyLeadId('')
+    }
   }
 
-  function addWalkIn(event: FormEvent) {
+  async function handleWalkInSubmit(event: FormEvent) {
     event.preventDefault()
-    if (!name.trim() || !phone.trim()) return
+    if (!walkInName.trim() || !walkInPhone.trim()) {
+      setActionMessage('Escribe nombre y telefono para registrar al paciente.')
+      return
+    }
 
-    const digits = phone.replace(/\D/g, '')
-    const now = new Date()
-    const arrivalTime = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: false })
+    setSubmittingWalkIn(true)
+    setActionMessage('')
 
-    setPatients((list) => [
-      ...list,
-      {
-        waId: digits || crypto.randomUUID(),
-        name: name.trim(),
-        phone: phone.trim(),
-        arrivalTime,
-        origin: 'walkin_sin_cita',
-        status: 'en_espera',
-      },
-    ])
-    setName('')
-    setPhone('')
+    try {
+      const lead = await onRegisterWalkIn(walkInName.trim(), walkInPhone.trim())
+      setActionMessage(`Paciente registrado en espera: ${lead.name}.`)
+      setWalkInName('')
+      setWalkInPhone('')
+      onOpenLead(lead.id)
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : 'No se pudo registrar el paciente sin cita.')
+    } finally {
+      setSubmittingWalkIn(false)
+    }
   }
 
   return (
     <div className="view-stack">
-      <div className="section-head standalone">
-        <div>
-          <span className="eyebrow">Tramo 1</span>
-          <h1>Sala de espera</h1>
+      <section className="panel kiosk-entry-panel">
+        <div className="section-head compact">
+          <div>
+            <span className="eyebrow">Kiosko</span>
+            <h2>Llegada del paciente</h2>
+          </div>
+          <div className="hero-actions">
+            <span className="soft-pill">{todayAppointments.length} citas confirmadas hoy</span>
+            <button className="secondary-button" onClick={onRefresh} disabled={loading}>
+              {loading ? 'Actualizando...' : 'Actualizar'}
+            </button>
+          </div>
         </div>
-      </div>
 
-      <section className="waiting-layout">
-        <div className="panel current-consult">
-          <span className="eyebrow">Consulta actual</span>
-          {current ? (
-            <>
-              <div className="consult-patient">
-                <div className="avatar xl">{current.name.slice(0, 1)}</div>
-                <div>
-                  <h2>{current.name}</h2>
-                  <p>{current.phone}</p>
-                </div>
-              </div>
-              <div className="consult-meta">
-                <div><span>Llegada</span><strong>{current.arrivalTime}</strong></div>
-                <div><span>Tratamiento</span><strong>{current.treatment ?? 'Por valorar'}</strong></div>
-              </div>
-              <button className="primary-button" onClick={finishCurrent}>Finalizar manualmente</button>
-            </>
-          ) : (
-            <div className="empty-state">
-              <div className="empty-icon">✓</div>
-              <h3>Doctor libre</h3>
-              <p>No hay nadie marcado en consulta.</p>
-              <button className="primary-button" onClick={callNext} disabled={waiting.length === 0}>Llamar siguiente</button>
+        <div className="kiosk-mode-switch">
+          <button className={mode === 'con_cita' ? 'mode-pill active' : 'mode-pill'} onClick={() => setMode('con_cita')}>Tengo cita</button>
+          <button className={mode === 'sin_cita' ? 'mode-pill active' : 'mode-pill'} onClick={() => setMode('sin_cita')}>No tengo cita</button>
+        </div>
+
+        {mode === 'con_cita' ? (
+          <div className="kiosk-search-block">
+            <div className="patient-browser-bar patient-browser-bar-compact">
+              <input
+                className="patient-search-input"
+                value={nameSearch}
+                onChange={(event) => setNameSearch(event.target.value)}
+                placeholder="Nombre"
+              />
+              <input
+                className="patient-search-input"
+                value={phoneSearch}
+                onChange={(event) => setPhoneSearch(event.target.value)}
+                placeholder="Telefono"
+              />
             </div>
-          )}
-        </div>
 
-        <div className="panel">
-          <div className="section-head compact">
-            <div><span className="eyebrow">Cola</span><h2>Siguientes pacientes</h2></div>
-            <span className="soft-pill">{waiting.length} esperando</span>
-          </div>
-          <div className="queue-list">
-            {waiting.map((patient, index) => (
-              <article className="queue-item" key={patient.waId}>
-                <span className="queue-number">{String(index + 1).padStart(2, '0')}</span>
-                <div className="patient-main">
-                  <strong>{patient.name}</strong>
-                  <span>Llegó {patient.arrivalTime}</span>
+            <div className="patient-browser-list">
+              {nameSearch.trim() || phoneSearch.trim() ? (
+                visiblePatients.length > 0 ? (
+                  visiblePatients.map((lead) => (
+                    <article className="patient-browser-row patient-browser-card" key={lead.id}>
+                      <button className="patient-browser-main" onClick={() => onOpenLead(lead.id)}>
+                        <strong>{lead.name}</strong>
+                        <span>{lead.phone || lead.waId || 'Sin telefono'}</span>
+                      </button>
+
+                      <div className="patient-browser-date">
+                        <strong>{lead.appointmentDate ? formatDateTime(lead.appointmentDate) : 'Sin cita'}</strong>
+                        <span>{lead.kioskStatus.replaceAll('_', ' ')}</span>
+                      </div>
+
+                      <div className="patient-browser-actions">
+                        <button
+                          className="primary-button"
+                          onClick={() => void handleArrival(lead, 'con_cita')}
+                          disabled={busyLeadId === lead.id}
+                        >
+                          {busyLeadId === lead.id ? 'Guardando...' : 'Marcar llegada'}
+                        </button>
+                      </div>
+                    </article>
+                  ))
+                ) : (
+                  <div className="empty-state empty-state-compact">
+                    <h3>No encontramos una cita</h3>
+                    <p>Prueba con otro nombre o telefono.</p>
+                  </div>
+                )
+              ) : (
+                <div className="empty-state empty-state-compact">
+                  <h3>Busca al paciente</h3>
+                  <p>Escribe nombre o telefono para marcar llegada.</p>
                 </div>
-                <StatusBadge status={patient.status} />
-              </article>
-            ))}
+              )}
+            </div>
           </div>
-        </div>
+        ) : (
+          <form className="walkin-panel" onSubmit={handleWalkInSubmit}>
+            <label className="field-row field-row-editable">
+              <span>Nombre</span>
+              <input className="field-input" value={walkInName} onChange={(event) => setWalkInName(event.target.value)} />
+            </label>
+            <label className="field-row field-row-editable">
+              <span>Telefono</span>
+              <input className="field-input" value={walkInPhone} onChange={(event) => setWalkInPhone(event.target.value)} />
+            </label>
+            <button className="primary-button" type="submit" disabled={submittingWalkIn}>
+              {submittingWalkIn ? 'Registrando...' : 'Registrar en espera'}
+            </button>
+          </form>
+        )}
+
+        {actionMessage && <p className="inline-helper">{actionMessage}</p>}
       </section>
 
-      <section className="panel walkin-panel">
-        <div>
-          <span className="eyebrow">Alta sin campaña o sin cita</span>
-          <h2>No tengo cita</h2>
-        </div>
-        <form className="walkin-form" onSubmit={addWalkIn}>
-          <label>Nombre<input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre del paciente" /></label>
-          <label>Teléfono<input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+52..." /></label>
-          <button className="primary-button" type="submit">Registrar llegada</button>
-        </form>
+      <section className="metric-grid">
+        <MetricCard label="Citas de hoy" value={todayAppointments.length} hint="confirmadas" />
+        <MetricCard label="Ya llegaron" value={waitingPatients.length + (currentPatient ? 1 : 0)} hint="recepcion" />
+        <MetricCard label="En consulta" value={currentPatient ? 1 : 0} hint="doctor" />
+        <MetricCard label="Pendientes" value={pendingToday.length} hint="sin llegada" />
+      </section>
+
+      <section className="crm-dashboard-grid waiting-room-grid">
+        <article className="panel">
+          <div className="section-head compact">
+            <div>
+              <span className="eyebrow">Consulta actual</span>
+              <h2>{currentPatient ? currentPatient.name : 'Sin paciente en consulta'}</h2>
+            </div>
+          </div>
+
+          {currentPatient ? (
+            <div className="waiting-current-card">
+              <div className="field-grid">
+                <Field label="Telefono" value={currentPatient.phone || currentPatient.waId || 'Sin telefono'} />
+                <Field label="Hora de cita" value={currentPatient.appointmentDate ? formatTime(currentPatient.appointmentDate) : 'Sin cita'} />
+                <Field label="Llegada" value={currentPatient.arrivalAt ? formatTime(currentPatient.arrivalAt) : 'Sin registro'} />
+                <Field label="Tratamiento" value={currentPatient.treatment || 'Pendiente'} />
+              </div>
+              <div className="patient-browser-actions">
+                <button className="secondary-button" onClick={() => onOpenLead(currentPatient.id)}>Abrir ficha</button>
+                <button className="primary-button" onClick={() => void handleStatusChange(currentPatient.id, 'finalizada')} disabled={busyLeadId === currentPatient.id}>
+                  {busyLeadId === currentPatient.id ? 'Guardando...' : 'Finalizar'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="empty-state empty-state-compact">
+              <h3>No hay consulta en curso</h3>
+              <p>Cuando recepcion marque llegada, podras pasar al paciente desde esta vista.</p>
+            </div>
+          )}
+        </article>
+
+        <article className="panel">
+          <div className="section-head compact">
+            <div>
+              <span className="eyebrow">Sala de espera</span>
+              <h2>Quien sigue</h2>
+            </div>
+            <span className="soft-pill">{waitingPatients.length} esperando</span>
+          </div>
+
+          <div className="appointment-list">
+            {waitingPatients.length > 0 ? (
+              waitingPatients.map((lead) => (
+                <article className="appointment-card appointment-card-static" key={lead.id}>
+                  <div>
+                    <strong>{lead.name}</strong>
+                    <span>{lead.appointmentDate ? formatTime(lead.appointmentDate) : 'Sin cita'} · llegó {lead.arrivalAt ? formatTime(lead.arrivalAt) : 'ahora'}</span>
+                  </div>
+                  <div className="patient-browser-actions">
+                    <button className="secondary-button" onClick={() => onOpenLead(lead.id)}>Ficha</button>
+                    <button className="primary-button" onClick={() => void handleStatusChange(lead.id, 'en_consulta')} disabled={busyLeadId === lead.id}>
+                      Pasar
+                    </button>
+                  </div>
+                </article>
+              ))
+            ) : (
+              <EmptyCopy title="Sin pacientes en espera" text="No hay llegadas registradas en este momento." compact />
+            )}
+          </div>
+        </article>
+      </section>
+
+      <section className="crm-dashboard-grid waiting-room-grid">
+        <article className="panel">
+          <div className="section-head compact">
+            <div>
+              <span className="eyebrow">Agenda del dia</span>
+              <h2>Pacientes de hoy</h2>
+            </div>
+          </div>
+
+          <div className="appointment-list">
+            {todayAppointments.length > 0 ? (
+              todayAppointments.map((lead) => (
+                <button className="appointment-card" key={lead.id} onClick={() => onOpenLead(lead.id)}>
+                  <div>
+                    <strong>{lead.name}</strong>
+                    <span>{lead.treatment || 'Cita confirmada'}</span>
+                  </div>
+                  <div className="appointment-card-meta">
+                    <strong>{formatTime(lead.appointmentDate)}</strong>
+                    <span>{labelForKioskStatus(lead.kioskStatus)}</span>
+                  </div>
+                </button>
+              ))
+            ) : (
+              <EmptyCopy title="Sin citas del dia" text="Aun no hay citas confirmadas para hoy." compact />
+            )}
+          </div>
+        </article>
+
+        <article className="panel">
+          <div className="section-head compact">
+            <div>
+              <span className="eyebrow">Cerradas</span>
+              <h2>Atenciones finalizadas</h2>
+            </div>
+            <span className="soft-pill">{finishedPatients.length} recientes</span>
+          </div>
+
+          <div className="appointment-list">
+            {finishedPatients.length > 0 ? (
+              finishedPatients.map((lead) => (
+                <button className="appointment-card" key={lead.id} onClick={() => onOpenLead(lead.id)}>
+                  <div>
+                    <strong>{lead.name}</strong>
+                    <span>{lead.treatment || 'Consulta finalizada'}</span>
+                  </div>
+                  <div className="appointment-card-meta">
+                    <strong>{lead.arrivalAt ? formatTime(lead.arrivalAt) : 'Sin hora'}</strong>
+                    <span>Finalizada</span>
+                  </div>
+                </button>
+              ))
+            ) : (
+              <EmptyCopy title="Nada finalizado" text="Todavia no se ha cerrado una atencion hoy." compact />
+            )}
+          </div>
+        </article>
       </section>
     </div>
   )
+}
+
+function MetricCard({ label, value, hint }: { label: string; value: number; hint: string }) {
+  return (
+    <article className="metric-card">
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{hint}</small>
+    </article>
+  )
+}
+
+function EmptyCopy({ title, text, compact = false }: { title: string; text: string; compact?: boolean }) {
+  return (
+    <div className={compact ? 'empty-state empty-state-compact' : 'empty-state'}>
+      <h3>{title}</h3>
+      <p>{text}</p>
+    </div>
+  )
+}
+
+function Field({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="field-row">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  )
+}
+
+function isSameDay(value: string, target: Date): boolean {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return false
+  return date.toDateString() === target.toDateString()
+}
+
+function formatDateTime(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString('es-MX', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function formatTime(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Sin hora'
+  return date.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
+}
+
+function compareByArrival(left: CrmLead, right: CrmLead): number {
+  const leftTime = left.arrivalAt ? new Date(left.arrivalAt).getTime() : Number.POSITIVE_INFINITY
+  const rightTime = right.arrivalAt ? new Date(right.arrivalAt).getTime() : Number.POSITIVE_INFINITY
+  return leftTime - rightTime
+}
+
+function comparePreferred(left: CrmLead, right: CrmLead): number {
+  const leftScore = left.appointmentConfirmed ? 0 : 1
+  const rightScore = right.appointmentConfirmed ? 0 : 1
+  if (leftScore !== rightScore) return leftScore - rightScore
+  return compareByArrival(left, right)
+}
+
+function labelForKioskStatus(status: KioskLeadStatus): string {
+  switch (status) {
+    case 'en_espera':
+      return 'Ya llegó'
+    case 'en_consulta':
+      return 'En consulta'
+    case 'finalizada':
+      return 'Finalizada'
+    default:
+      return 'Pendiente'
+  }
 }
