@@ -149,8 +149,8 @@ function normalizeOrigin(value: string): LeadOrigin {
   }
 }
 
-function normalizeKioskStatus(value: unknown): KioskLeadStatus {
-  const normalized = stringValue(value).toLowerCase()
+function normalizeKioskStatus(...values: unknown[]): KioskLeadStatus {
+  const normalized = stringValue(...values).toLowerCase()
 
   switch (normalized) {
     case 'en_espera':
@@ -171,7 +171,19 @@ function normalizeKioskFlow(value: unknown): KioskFlow {
 
 function isConfirmedAppointmentValue(value: string): boolean {
   const normalized = value.toLowerCase()
-  return normalized.includes('confirm') || normalized.includes('agendada') || normalized.includes('valoracion_confirmada')
+  return (
+    normalized.includes('confirm') ||
+    normalized.includes('agendada') ||
+    normalized.includes('valoracion_confirmada') ||
+    normalized.includes('en_proceso') ||
+    normalized.includes('programada') ||
+    normalized.includes('pendiente')
+  )
+}
+
+function isCancelledAppointmentValue(value: string): boolean {
+  const normalized = value.toLowerCase()
+  return normalized.includes('cancel') || normalized.includes('no_show')
 }
 
 function placeholderName(row: RawLead, raw: Record<string, unknown>): string {
@@ -246,20 +258,41 @@ function mapTraceabilityEvent(row: RawTraceabilityEvent): TraceabilityEvent {
 
 export function mapDentalLead(row: RawLead): CrmLead {
   const raw = safeObject(row.raw_payload)
-  const phone = stringValue(row.whatsapp_phone, row.telefono, raw.telefono)
-  const waId = stringValue(row.wa_id, row.subscriber_id, phone, raw.wa_id, raw.telefono)
-  const appointmentDate = stringValue(row.fecha_cita, raw.fecha_cita, raw.proxima_cita_sugerida)
-  const appointmentStatus = stringValue(row.status_cita, raw.status_cita)
+  const phone = stringValue(
+    row.whatsapp_phone,
+    row.telefono,
+    raw.whatsapp_phone,
+    raw.telefono_paciente,
+    raw.telefono,
+    raw.username,
+  )
+  const waId = stringValue(row.wa_id, row.subscriber_id, phone, raw.wa_id, raw.telefono, raw.subscriber_id)
+  const appointmentDate = stringValue(
+    row.fecha_cita,
+    raw.fecha_cita,
+    raw.proxima_cita_sugerida,
+    raw['Fecha de la cita'],
+    raw.cita_start_iso,
+    raw.fecha,
+  )
+  const appointmentStatus = stringValue(
+    row.status_cita,
+    raw.status_cita,
+    raw['Status cita'],
+    raw.status,
+    raw.Status,
+  )
   const treatment = stringValue(
     row.service,
     raw.tratamiento_propuesto,
     raw.especialidad,
     raw.motivo_consulta,
     raw.tratamiento,
+    raw.tipo_cita,
   )
-  const appointmentConfirmed = isConfirmedAppointmentValue(appointmentStatus)
-  const arrivalAt = stringValue(raw.arrival_at, raw.checked_in_at)
-  const kioskStatus = normalizeKioskStatus(raw.kiosk_status)
+  const appointmentConfirmed = Boolean(appointmentDate) && !isCancelledAppointmentValue(appointmentStatus) && isConfirmedAppointmentValue(appointmentStatus || 'pendiente')
+  const arrivalAt = stringValue(row.llegada_kiosko_at, raw.arrival_at, raw.checked_in_at)
+  const kioskStatus = normalizeKioskStatus(row.kiosk_status, raw.kiosk_status, arrivalAt ? 'en_espera' : 'pendiente')
   const kioskFlow = normalizeKioskFlow(raw.kiosk_flow ?? (appointmentConfirmed || appointmentDate ? 'con_cita' : 'sin_cita'))
 
   return {
@@ -267,7 +300,7 @@ export function mapDentalLead(row: RawLead): CrmLead {
     companyKey: resolveCompanyKey(stringValue(row.company_key)),
     waId,
     subscriberId: stringValue(row.subscriber_id, row.wa_id, phone),
-    name: stringValue(row.nombre_paciente, raw.nombre_completo, raw.nombre_contacto) || placeholderName(row, raw),
+    name: stringValue(row.nombre_paciente, raw.nombre_paciente, raw['Nombre del paciente'], raw.nombre_completo, raw.nombre_contacto) || placeholderName(row, raw),
     phone,
     stageKey: stringValue(row.kanban_stage, raw.etapa) || 'contactos_nuevos',
     stageLocked: Boolean(row.stage_locked),
@@ -282,8 +315,8 @@ export function mapDentalLead(row: RawLead): CrmLead {
     reminderAt: stringValue(row.reminder_at),
     reminderText: stringValue(row.reminder_text),
     reminderCompleted: Boolean(row.reminder_completed),
-    lastMessage: stringValue(row.ultimo_mensaje_cliente, raw.ultimo_mensaje),
-    lastContactAt: stringValue(row.last_activity_at, row.source_updated_at, row.updated_at, row.created_at),
+    lastMessage: stringValue(row.ultimo_mensaje_cliente, row.ultimo_mensaje_cli, raw.ultimo_mensaje, raw.ultimo_mensaje_cli),
+    lastContactAt: stringValue(row.last_activity_at, row.source_updated_at, row.updated_at, row.created_at, raw.fecha_ultimo_mensaje),
     kioskStatus,
     kioskFlow,
     arrivalAt,
@@ -550,10 +583,12 @@ export async function updateDentalLeadKioskState(params: {
     arrival_at: params.kioskStatus === 'pendiente' ? null : arrivalAt,
     last_kiosk_update_at: new Date().toISOString(),
   }
+  const llegadaKioskoAt = params.kioskStatus === 'pendiente' ? null : arrivalAt
 
   const { data, error } = await client
     .from(CRM_TABLES.leads)
     .update({
+      llegada_kiosko_at: llegadaKioskoAt,
       raw_payload: rawPayload,
       status_cita: params.lead.appointmentStatus || null,
     })
@@ -592,6 +627,7 @@ export async function createDentalWalkInLead(params: {
       nombre_paciente: params.name,
       whatsapp_phone: digits || null,
       wa_id: digits || null,
+      llegada_kiosko_at: now,
       origen_lead: 'walkin_sin_cita',
       source: 'Kiosko',
       kanban_stage: 'contactos_nuevos',

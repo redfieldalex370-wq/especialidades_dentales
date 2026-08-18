@@ -30,7 +30,7 @@ export function DashboardView({
   const quotedHighValue = leads.filter((lead) => (lead.quotedAmount ?? 0) >= 45000).length
   const overdueFollowups = leads.filter((lead) => isOverdue(lead.reminderAt, lead.reminderCompleted)).length
   const upcomingAppointments = [...leads]
-    .filter((lead) => lead.appointmentDate && isSameDay(lead.appointmentDate, new Date()) && isConfirmedAppointment(lead.appointmentStatus))
+    .filter((lead) => lead.appointmentDate && isSameDay(lead.appointmentDate, new Date()) && isActiveAppointment(lead.appointmentStatus))
     .sort((a, b) => new Date(a.appointmentDate).getTime() - new Date(b.appointmentDate).getTime())
     .slice(0, 6)
 
@@ -241,8 +241,10 @@ function money(value: number): string {
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }).format(value)
 }
 
-function isConfirmedAppointment(status: string): boolean {
-  return status.toLowerCase().includes('confirm')
+function isActiveAppointment(status: string): boolean {
+  const normalized = status.toLowerCase()
+  if (!normalized) return true
+  return !normalized.includes('cancel') && !normalized.includes('no_show')
 }
 
 function formatTime(value: string): string {
