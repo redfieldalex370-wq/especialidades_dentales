@@ -147,14 +147,6 @@ export function PatientView({
         </section>
       )}
 
-      <section className="profile-banner">
-        <div className="avatar xl">{activeLead.name.slice(0, 1)}</div>
-        <div>
-          <h2>{lead.name}</h2>
-          <p>{lead.phone || 'Sin telefono'} · wa_id {lead.waId || 'pendiente'}</p>
-        </div>
-      </section>
-
       <section className="panel operational-panel">
         <div className="section-head compact">
           <div>
