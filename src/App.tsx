@@ -281,6 +281,7 @@ export default function App() {
               onOpenLead={openLead}
               onBackToCrm={() => setView('dashboard')}
               onSaveDetail={handleSaveLeadDetail}
+              onUpdateKioskStatus={handleUpdateKioskStatus}
             />
           )}
           {view === 'automation' && <AutomationView />}

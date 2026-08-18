@@ -1,5 +1,5 @@
 import { useDeferredValue, useEffect, useMemo, useState } from 'react'
-import type { ClinicalRecord, CommercialCase, CrmLead, CrmLeadDetail, CrmStage, DentalLeadDetailUpdate, TraceabilityEvent } from '../types'
+import type { ClinicalRecord, CommercialCase, CrmLead, CrmLeadDetail, CrmStage, DentalLeadDetailUpdate, KioskFlow, KioskLeadStatus, TraceabilityEvent } from '../types'
 
 interface Props {
   lead: CrmLead | null
@@ -13,6 +13,7 @@ interface Props {
   onOpenLead: (leadId: string) => void
   onBackToCrm: () => void
   onSaveDetail: (leadId: string, input: DentalLeadDetailUpdate) => Promise<void>
+  onUpdateKioskStatus: (leadId: string, kioskStatus: KioskLeadStatus, kioskFlow?: KioskFlow) => Promise<void>
 }
 
 export function PatientView({
@@ -27,12 +28,14 @@ export function PatientView({
   onOpenLead,
   onBackToCrm,
   onSaveDetail,
+  onUpdateKioskStatus,
 }: Props) {
   const [nameSearch, setNameSearch] = useState('')
   const [phoneSearch, setPhoneSearch] = useState('')
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState('')
+  const [kioskBusy, setKioskBusy] = useState(false)
   const deferredNameSearch = useDeferredValue(nameSearch)
   const deferredPhoneSearch = useDeferredValue(phoneSearch)
   const hasSearch = deferredNameSearch.trim().length > 0 || deferredPhoneSearch.trim().length > 0
@@ -108,6 +111,20 @@ export function PatientView({
     }
   }
 
+  async function handleKioskAction(status: KioskLeadStatus, flow?: KioskFlow) {
+    setKioskBusy(true)
+    setSaveMessage('')
+
+    try {
+      await onUpdateKioskStatus(activeLead.id, status, flow)
+      setSaveMessage('Estado operativo actualizado.')
+    } catch (error) {
+      setSaveMessage(error instanceof Error ? error.message : 'No se pudo actualizar el estado operativo.')
+    } finally {
+      setKioskBusy(false)
+    }
+  }
+
   return (
     <div className="view-stack">
       <div className="section-head standalone">
@@ -175,6 +192,35 @@ export function PatientView({
             ))}
           </select>
         </label>
+      </section>
+
+      <section className="panel operational-panel">
+        <div className="section-head compact">
+          <div>
+            <span className="eyebrow">Operacion</span>
+            <h2>Control del kiosko</h2>
+          </div>
+          <span className="soft-pill">{labelForKioskStatus(lead.kioskStatus)}</span>
+        </div>
+
+        <div className="field-grid">
+          <Field label="Flujo" value={lead.kioskFlow === 'sin_cita' ? 'Sin cita' : 'Con cita'} />
+          <Field label="Llegada" value={lead.arrivalAt ? formatDateTime(lead.arrivalAt) : 'Sin llegada registrada'} />
+          <Field label="Cita activa" value={lead.appointmentDate ? formatDateTime(lead.appointmentDate) : 'Sin cita'} />
+          <Field label="Estado de sala" value={labelForKioskStatus(lead.kioskStatus)} />
+        </div>
+
+        <div className="patient-actions operational-actions">
+          <button className="secondary-button" onClick={() => void handleKioskAction('en_espera', lead.appointmentDate ? 'con_cita' : 'sin_cita')} disabled={kioskBusy}>
+            {kioskBusy ? 'Guardando...' : 'Marcar llegada'}
+          </button>
+          <button className="secondary-button" onClick={() => void handleKioskAction('en_consulta')} disabled={kioskBusy}>
+            Pasar a consulta
+          </button>
+          <button className="primary-button" onClick={() => void handleKioskAction('finalizada')} disabled={kioskBusy}>
+            Finalizar atencion
+          </button>
+        </div>
       </section>
 
       <section className="record-grid">
@@ -503,4 +549,17 @@ function toIsoDateTime(value: string): string {
   if (!value) return ''
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? '' : date.toISOString()
+}
+
+function labelForKioskStatus(status: KioskLeadStatus): string {
+  switch (status) {
+    case 'en_espera':
+      return 'En espera'
+    case 'en_consulta':
+      return 'En consulta'
+    case 'finalizada':
+      return 'Finalizada'
+    default:
+      return 'Pendiente'
+  }
 }
