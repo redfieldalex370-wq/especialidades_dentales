@@ -1,4 +1,4 @@
-import { FormEvent, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { FormEvent, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import type { CalendarAppointment, CrmLead, KioskFlow, KioskLeadStatus } from '../types'
 
 interface Props {
@@ -10,7 +10,7 @@ interface Props {
   onOpenLead: (leadId: string) => void
   onRegisterWalkIn: (name: string, phone: string) => Promise<CrmLead>
   onUpdateLeadStatus: (leadId: string, kioskStatus: KioskLeadStatus, kioskFlow?: KioskFlow) => Promise<void>
-  onAutoCallNext: (leadId: string) => Promise<void>
+  onCallNextPatient: (mode: 'automatico' | 'manual') => Promise<CrmLead | null>
 }
 
 export function WaitingRoomView({
@@ -22,7 +22,7 @@ export function WaitingRoomView({
   onOpenLead,
   onRegisterWalkIn,
   onUpdateLeadStatus,
-  onAutoCallNext,
+  onCallNextPatient,
 }: Props) {
   const [mode, setMode] = useState<KioskFlow>('con_cita')
   const [nameSearch, setNameSearch] = useState('')
@@ -33,7 +33,6 @@ export function WaitingRoomView({
   const [busyLeadId, setBusyLeadId] = useState('')
   const [submittingWalkIn, setSubmittingWalkIn] = useState(false)
   const [now, setNow] = useState(() => Date.now())
-  const autoCallingLeadIdRef = useRef('')
 
   const deferredNameSearch = useDeferredValue(nameSearch)
   const deferredPhoneSearch = useDeferredValue(phoneSearch)
@@ -95,7 +94,7 @@ export function WaitingRoomView({
 
   const arrivedTodayCount = waitingPatients.length + (currentPatient ? 1 : 0) + finishedPatients.length
   const pendingTodayCount = todayScheduledLeads.filter((lead) => lead.kioskStatus === 'pendiente').length
-  const currentConsultationMinutes = currentPatient ? minutesSince(currentPatient.arrivalAt, now) : 0
+  const currentConsultationMinutes = currentPatient ? minutesSince(currentPatient.consultaInicioAt || currentPatient.arrivalAt, now) : 0
   const hasConsultationDelay = currentConsultationMinutes >= 30
 
   const visiblePatients = useMemo(() => {
@@ -173,32 +172,6 @@ export function WaitingRoomView({
     const timer = window.setInterval(() => setNow(Date.now()), 60_000)
     return () => window.clearInterval(timer)
   }, [])
-
-  useEffect(() => {
-    if (currentPatient || waitingPatients.length === 0) {
-      autoCallingLeadIdRef.current = ''
-      return
-    }
-
-    const nextPatient = waitingPatients[0]
-    if (!nextPatient || autoCallingLeadIdRef.current === nextPatient.id) return
-
-    autoCallingLeadIdRef.current = nextPatient.id
-    setBusyLeadId(nextPatient.id)
-    setActionMessage('')
-
-    void onAutoCallNext(nextPatient.id)
-      .then(() => {
-        setActionMessage(`Se llamó automáticamente a ${nextPatient.name}.`)
-      })
-      .catch((error) => {
-        autoCallingLeadIdRef.current = ''
-        setActionMessage(error instanceof Error ? error.message : 'No se pudo llamar al siguiente paciente.')
-      })
-      .finally(() => {
-        setBusyLeadId('')
-      })
-  }, [currentPatient, waitingPatients, onAutoCallNext])
 
   return (
     <div className="view-stack">
@@ -420,12 +393,12 @@ export function WaitingRoomView({
                     <span>{lead.phone || lead.waId || 'Sin telefono'}</span>
                     <small>{lead.arrivalAt ? `Llegó ${formatTime(lead.arrivalAt)}` : 'Pendiente de recepción'}</small>
                   </div>
-                  <div className="patient-browser-actions">
-                    <button className="secondary-button" onClick={() => onOpenLead(lead.id)}>Ficha</button>
-                    <button className="primary-button" onClick={() => void handleStatusChange(lead.id, 'en_espera')} disabled={busyLeadId === lead.id}>
-                      Poner en espera
-                    </button>
-                  </div>
+                <div className="patient-browser-actions">
+                  <button className="secondary-button" onClick={() => onOpenLead(lead.id)}>Ficha</button>
+                  <button className="primary-button" onClick={() => void handleStatusChange(lead.id, 'en_espera')} disabled={busyLeadId === lead.id}>
+                    Poner en espera
+                  </button>
+                </div>
                 </article>
               ))
             ) : (
@@ -446,7 +419,7 @@ export function WaitingRoomView({
           </div>
 
           <div className="appointment-list">
-            {waitingPatients.map((lead) => (
+            {waitingPatients.map((lead, index) => (
               <article className="appointment-card appointment-card-static" key={lead.id}>
                 <div>
                   <strong>{lead.name}</strong>
@@ -455,9 +428,28 @@ export function WaitingRoomView({
                 </div>
                 <div className="patient-browser-actions">
                   <button className="secondary-button" onClick={() => onOpenLead(lead.id)}>Ficha</button>
-                  <button className="primary-button" onClick={() => void handleStatusChange(lead.id, 'en_consulta')} disabled={busyLeadId === lead.id}>
-                    Pasar
-                  </button>
+                  {index === 0 ? (
+                    <button
+                      className="primary-button"
+                      onClick={async () => {
+                        setBusyLeadId(lead.id)
+                        setActionMessage('')
+                        try {
+                          const selected = await onCallNextPatient('manual')
+                          setActionMessage(selected ? 'Se llamó al siguiente paciente.' : 'No había un turno disponible para pasar en este momento.')
+                        } catch (error) {
+                          setActionMessage(error instanceof Error ? error.message : 'No se pudo llamar al siguiente paciente.')
+                        } finally {
+                          setBusyLeadId('')
+                        }
+                      }}
+                      disabled={busyLeadId === lead.id || Boolean(currentPatient)}
+                    >
+                      {busyLeadId === lead.id ? 'Llamando...' : currentPatient ? 'Consulta activa' : 'Pasar'}
+                    </button>
+                  ) : (
+                    <button className="secondary-button" disabled>En fila</button>
+                  )}
                 </div>
               </article>
             ))}

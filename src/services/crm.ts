@@ -528,6 +528,31 @@ export async function updateDentalLeadKioskState(params: {
   return savedLead
 }
 
+export async function callNextWaitingPatient(params: {
+  companyKey?: CrmCompanyKey
+  mode: 'automatico' | 'manual'
+}): Promise<CrmLead | null> {
+  const client = requireSupabase()
+  const companyKey = params.companyKey ?? DEFAULT_CRM_COMPANY_KEY
+  const { data, error } = await client.rpc('llamar_siguiente_paciente', {
+    p_company_key: companyKey,
+  })
+
+  if (error) throw error
+
+  const row = Array.isArray(data) ? data[0] : null
+  if (!row) return null
+
+  const lead = mapDentalLead(row as RawLead)
+  await logTraceabilityEvent({
+    lead,
+    tipoEvento: params.mode === 'automatico' ? 'llamado automatico' : 'llamado manual',
+    responsable: 'sistema',
+  })
+
+  return lead
+}
+
 export async function createDentalWalkInLead(params: {
   companyKey?: CrmCompanyKey
   name: string

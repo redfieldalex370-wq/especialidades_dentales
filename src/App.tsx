@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Sidebar, type ViewKey } from './components/Sidebar'
 import { AutomationView } from './views/AutomationView'
 import { DashboardView } from './views/DashboardView'
@@ -7,11 +7,11 @@ import { WaitingRoomView } from './views/WaitingRoomView'
 import type { CalendarAppointment, CrmLead, CrmLeadDetail, CrmStage, DentalLeadDetailUpdate, KioskFlow, KioskLeadStatus } from './types'
 import { supabase } from './lib/supabase'
 import {
+  callNextWaitingPatient,
   createDentalWalkInLead,
   DENTAL_PIPELINE_FALLBACK,
   getDentalPipelineStages,
   listDentalCrmLeads,
-  logTraceabilityEvent,
   updateDentalLeadKioskState,
   updateDentalLeadStage,
 } from './services/crm'
@@ -38,6 +38,10 @@ export default function App() {
   const [calendarAppointments, setCalendarAppointments] = useState<CalendarAppointment[]>([])
   const [calendarLoading, setCalendarLoading] = useState(false)
   const [calendarError, setCalendarError] = useState('')
+  const selectedLeadIdRef = useRef('')
+  const processedRealtimeEventRef = useRef<Set<string>>(new Set())
+
+  selectedLeadIdRef.current = selectedLeadId
 
   async function loadLeadDetail(leadId: string) {
     setLeadDetailLoading(true)
@@ -132,10 +136,32 @@ export default function App() {
           table: 'crm_leads',
           filter: `company_key=eq.${companyKey}`,
         },
-        () => {
+        (payload) => {
+          const nextRow = (payload.new ?? {}) as Record<string, unknown>
+          const previousRow = (payload.old ?? {}) as Record<string, unknown>
+          const eventKey = `${payload.commit_timestamp}:${payload.eventType}:${String(nextRow.id ?? previousRow.id ?? '')}:${String(nextRow.estado_consulta ?? '')}`
+          if (processedRealtimeEventRef.current.has(eventKey)) return
+          processedRealtimeEventRef.current.add(eventKey)
+          if (processedRealtimeEventRef.current.size > 200) {
+            const firstKey = processedRealtimeEventRef.current.values().next().value
+            if (firstKey) processedRealtimeEventRef.current.delete(firstKey)
+          }
+
+          const nextState = String(nextRow.estado_consulta ?? '')
+          const previousState = String(previousRow.estado_consulta ?? '')
+          const shouldAutoCall =
+            payload.eventType === 'UPDATE' &&
+            nextState === 'finalizada' &&
+            previousState !== 'finalizada' &&
+            String(nextRow.company_key ?? '') === companyKey
+
+          if (shouldAutoCall) {
+            void handleCallNextPatient('automatico')
+          }
+
           void loadCrm()
-          if (selectedLeadId) {
-            void loadLeadDetail(selectedLeadId)
+          if (selectedLeadIdRef.current) {
+            void loadLeadDetail(selectedLeadIdRef.current)
           }
         },
       )
@@ -144,7 +170,7 @@ export default function App() {
     return () => {
       void realtimeClient.removeChannel(channel)
     }
-  }, [selectedLeadId])
+  }, [companyKey])
 
   const selectedLead = useMemo(
     () => crmLeads.find((lead) => lead.id === selectedLeadId) ?? null,
@@ -244,29 +270,19 @@ export default function App() {
     }
   }
 
-  async function handleAutoCallNext(leadId: string) {
-    const lead = crmLeads.find((item) => item.id === leadId)
-    if (!lead) throw new Error('No encontramos al paciente que sigue en la cola.')
-
-    const saved = await updateDentalLeadKioskState({
-      lead,
+  async function handleCallNextPatient(mode: 'automatico' | 'manual') {
+    const selected = await callNextWaitingPatient({
       companyKey,
-      kioskStatus: 'en_consulta',
-      kioskFlow: lead.kioskFlow,
-      arrivalAt: lead.arrivalAt || new Date().toISOString(),
+      mode,
     })
 
-    setCrmLeads((current) => current.map((item) => (item.id === leadId ? saved : item)))
+    await loadCrm()
 
-    await logTraceabilityEvent({
-      lead: saved,
-      tipoEvento: 'llamado automatico',
-      responsable: 'sistema',
-    })
-
-    if (selectedLeadId === leadId) {
-      await loadLeadDetail(leadId)
+    if (selectedLeadIdRef.current) {
+      await loadLeadDetail(selectedLeadIdRef.current)
     }
+
+    return selected
   }
 
   async function handleRegisterWalkIn(name: string, phone: string) {
@@ -349,7 +365,7 @@ export default function App() {
               onOpenLead={openLead}
               onRegisterWalkIn={handleRegisterWalkIn}
               onUpdateLeadStatus={handleUpdateKioskStatus}
-              onAutoCallNext={handleAutoCallNext}
+              onCallNextPatient={handleCallNextPatient}
             />
           )}
           {view === 'patient' && (
