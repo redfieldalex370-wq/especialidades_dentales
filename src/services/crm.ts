@@ -566,6 +566,44 @@ export async function updateDentalLeadDetail(lead: CrmLead, input: DentalLeadDet
   return getDentalLeadDetail(lead.id, resolveCompanyKey(lead.companyKey))
 }
 
+export async function syncDentalLeadAppointment(params: {
+  lead: CrmLead
+  appointmentDate: string
+  appointmentStatus: string
+  appointmentType: string
+  calendarEventId?: string
+  notes?: string
+}): Promise<CrmLead> {
+  const client = requireSupabase()
+  const companyKey = resolveCompanyKey(params.lead.companyKey)
+  const rawPayload = {
+    ...params.lead.rawPayload,
+    fecha_cita: params.appointmentDate || null,
+    proxima_cita_sugerida: params.appointmentDate || null,
+    status_cita: params.appointmentStatus || null,
+    tipo_cita: params.appointmentType || null,
+    google_calendar_event_id: params.calendarEventId || null,
+    calendar_source: params.appointmentDate ? 'google_calendar' : null,
+    calendar_notes: params.notes || null,
+  }
+
+  const { data, error } = await client
+    .from(CRM_TABLES.leads)
+    .update({
+      fecha_cita: params.appointmentDate || null,
+      status_cita: params.appointmentStatus || null,
+      raw_payload: rawPayload,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', params.lead.id)
+    .eq('company_key', companyKey)
+    .select('*')
+    .single()
+
+  if (error) throw error
+  return mapDentalLead(data as RawLead)
+}
+
 export async function updateDentalLeadKioskState(params: {
   lead: CrmLead
   companyKey?: CrmCompanyKey

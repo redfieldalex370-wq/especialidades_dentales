@@ -1,5 +1,5 @@
 import { useDeferredValue, useEffect, useMemo, useState } from 'react'
-import type { ClinicalRecord, CommercialCase, CrmLead, CrmLeadDetail, CrmStage, DentalLeadDetailUpdate, KioskFlow, KioskLeadStatus, TraceabilityEvent } from '../types'
+import type { CalendarAppointment, ClinicalRecord, CommercialCase, CrmLead, CrmLeadDetail, CrmStage, DentalLeadDetailUpdate, KioskFlow, KioskLeadStatus, TraceabilityEvent } from '../types'
 
 interface Props {
   lead: CrmLead | null
@@ -7,6 +7,8 @@ interface Props {
   detail: CrmLeadDetail | null
   detailLoading: boolean
   detailError: string
+  calendarAppointments: CalendarAppointment[]
+  calendarBusy: boolean
   stages: CrmStage[]
   movingLeadId: string
   onMoveLead: (leadId: string, stageKey: string) => void
@@ -14,6 +16,10 @@ interface Props {
   onBackToCrm: () => void
   onSaveDetail: (leadId: string, input: DentalLeadDetailUpdate) => Promise<void>
   onUpdateKioskStatus: (leadId: string, kioskStatus: KioskLeadStatus, kioskFlow?: KioskFlow) => Promise<void>
+  onCalendarConnect: () => Promise<void>
+  onCreateAppointment: (leadId: string, input: { start: string; end: string; appointmentType: 'valoracion' | 'limpieza'; notes: string }) => Promise<void>
+  onUpdateAppointment: (leadId: string, eventId: string, input: { start: string; end: string; appointmentType: 'valoracion' | 'limpieza'; notes: string }) => Promise<void>
+  onDeleteAppointment: (leadId: string, eventId: string) => Promise<void>
 }
 
 export function PatientView({
@@ -22,6 +28,8 @@ export function PatientView({
   detail,
   detailLoading,
   detailError,
+  calendarAppointments,
+  calendarBusy,
   stages,
   movingLeadId,
   onMoveLead,
@@ -29,6 +37,10 @@ export function PatientView({
   onBackToCrm,
   onSaveDetail,
   onUpdateKioskStatus,
+  onCalendarConnect,
+  onCreateAppointment,
+  onUpdateAppointment,
+  onDeleteAppointment,
 }: Props) {
   const [nameSearch, setNameSearch] = useState('')
   const [phoneSearch, setPhoneSearch] = useState('')
@@ -36,6 +48,7 @@ export function PatientView({
   const [saving, setSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState('')
   const [kioskBusy, setKioskBusy] = useState(false)
+  const [calendarDraft, setCalendarDraft] = useState(() => buildCalendarDraft(null, null))
   const deferredNameSearch = useDeferredValue(nameSearch)
   const deferredPhoneSearch = useDeferredValue(phoneSearch)
   const hasSearch = deferredNameSearch.trim().length > 0 || deferredPhoneSearch.trim().length > 0
@@ -61,6 +74,15 @@ export function PatientView({
     setSaveMessage('')
     setEditing(false)
   }, [lead?.id, detail?.clinicalRecord?.updatedAt, detail?.commercialCase?.updatedAt])
+
+  const matchedAppointment = useMemo(
+    () => (lead ? calendarAppointments.find((item) => item.matchedLeadId === lead.id) ?? null : null),
+    [calendarAppointments, lead],
+  )
+
+  useEffect(() => {
+    setCalendarDraft(buildCalendarDraft(lead, matchedAppointment))
+  }, [lead?.id, matchedAppointment?.id, matchedAppointment?.start, matchedAppointment?.description])
 
   if (!lead) {
     return (
@@ -122,6 +144,44 @@ export function PatientView({
       setSaveMessage(error instanceof Error ? error.message : 'No se pudo actualizar el estado operativo.')
     } finally {
       setKioskBusy(false)
+    }
+  }
+
+  async function handleCalendarSave() {
+    setSaveMessage('')
+    const input = {
+      start: toIsoDateTime(calendarDraft.start),
+      end: toIsoDateTime(calendarDraft.end),
+      appointmentType: calendarDraft.appointmentType,
+      notes: calendarDraft.notes,
+    }
+
+    if (!input.start || !input.end) {
+      setSaveMessage('Completa fecha y hora de inicio y fin para la cita.')
+      return
+    }
+
+    try {
+      if (matchedAppointment) {
+        await onUpdateAppointment(activeLead.id, matchedAppointment.id, input)
+        setSaveMessage('Cita actualizada en Google Calendar.')
+      } else {
+        await onCreateAppointment(activeLead.id, input)
+        setSaveMessage('Cita creada en Google Calendar.')
+      }
+    } catch (error) {
+      setSaveMessage(error instanceof Error ? error.message : 'No se pudo guardar la cita.')
+    }
+  }
+
+  async function handleCalendarDelete() {
+    if (!matchedAppointment) return
+
+    try {
+      await onDeleteAppointment(activeLead.id, matchedAppointment.id)
+      setSaveMessage('Cita eliminada de Google Calendar.')
+    } catch (error) {
+      setSaveMessage(error instanceof Error ? error.message : 'No se pudo eliminar la cita.')
     }
   }
 
@@ -219,6 +279,71 @@ export function PatientView({
           </button>
           <button className="primary-button" onClick={() => void handleKioskAction('finalizada')} disabled={kioskBusy}>
             Finalizar atencion
+          </button>
+        </div>
+      </section>
+
+      <section className="panel operational-panel">
+        <div className="section-head compact">
+          <div>
+            <span className="eyebrow">Agenda</span>
+            <h2>Cita en Google Calendar</h2>
+          </div>
+          <span className={`soft-pill ${matchedAppointment ? 'match-pill' : 'miss-pill'}`}>
+            {matchedAppointment ? 'Vinculada' : 'Sin cita'}
+          </span>
+        </div>
+
+        <div className="field-grid">
+          <label className="field-row field-row-editable">
+            <span>Tipo de cita</span>
+            <select
+              className="field-input"
+              value={calendarDraft.appointmentType}
+              onChange={(event) => setCalendarDraft((current) => ({ ...current, appointmentType: event.target.value as 'valoracion' | 'limpieza' }))}
+            >
+              <option value="valoracion">Valoración</option>
+              <option value="limpieza">Limpieza</option>
+            </select>
+          </label>
+          <label className="field-row field-row-editable">
+            <span>Inicio</span>
+            <input
+              className="field-input"
+              type="datetime-local"
+              value={calendarDraft.start}
+              onChange={(event) => setCalendarDraft((current) => ({ ...current, start: event.target.value }))}
+            />
+          </label>
+          <label className="field-row field-row-editable">
+            <span>Fin</span>
+            <input
+              className="field-input"
+              type="datetime-local"
+              value={calendarDraft.end}
+              onChange={(event) => setCalendarDraft((current) => ({ ...current, end: event.target.value }))}
+            />
+          </label>
+          <label className="field-row field-row-editable">
+            <span>Notas</span>
+            <textarea
+              className="field-input field-textarea"
+              value={calendarDraft.notes}
+              onChange={(event) => setCalendarDraft((current) => ({ ...current, notes: event.target.value }))}
+              rows={3}
+            />
+          </label>
+        </div>
+
+        <div className="patient-actions operational-actions">
+          <button className="secondary-button" onClick={() => void onCalendarConnect()} disabled={calendarBusy}>
+            {calendarBusy ? 'Conectando...' : 'Conectar Google'}
+          </button>
+          <button className="primary-button" onClick={() => void handleCalendarSave()} disabled={calendarBusy}>
+            {calendarBusy ? 'Guardando...' : matchedAppointment ? 'Actualizar cita' : 'Crear cita'}
+          </button>
+          <button className="secondary-button" onClick={() => void handleCalendarDelete()} disabled={calendarBusy || !matchedAppointment}>
+            Eliminar cita
           </button>
         </div>
       </section>
@@ -562,4 +687,25 @@ function labelForKioskStatus(status: KioskLeadStatus): string {
     default:
       return 'Pendiente'
   }
+}
+
+function buildCalendarDraft(lead: CrmLead | null, appointment: CalendarAppointment | null) {
+  const start = appointment?.start || lead?.appointmentDate || ''
+  const normalizedStart = toDateTimeLocal(start)
+  const normalizedEnd = toDateTimeLocal(appointment?.end || addOneHour(start))
+  const sourceText = `${appointment?.title || ''} ${lead?.treatment || ''}`.toLowerCase()
+
+  return {
+    appointmentType: sourceText.includes('limpieza') ? 'limpieza' as const : 'valoracion' as const,
+    start: normalizedStart,
+    end: normalizedEnd,
+    notes: appointment?.description || '',
+  }
+}
+
+function addOneHour(value: string): string {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return new Date(date.getTime() + 60 * 60 * 1000).toISOString()
 }

@@ -161,4 +161,5 @@ export interface CalendarAppointment {
   location: string
   patientName: string
   matchedLeadId: string
+  source: 'google_calendar'
 }

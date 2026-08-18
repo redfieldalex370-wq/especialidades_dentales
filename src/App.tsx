@@ -11,11 +11,19 @@ import {
   getDentalLeadDetail,
   getDentalPipelineStages,
   listDentalCrmLeads,
+  syncDentalLeadAppointment,
   updateDentalLeadDetail,
   updateDentalLeadKioskState,
   updateDentalLeadStage,
 } from './services/crm'
-import { isGoogleCalendarConfigured, listCalendarAppointments } from './services/googleCalendar'
+import {
+  connectGoogleCalendar,
+  createCalendarAppointment,
+  deleteCalendarAppointment,
+  isGoogleCalendarConfigured,
+  listCalendarAppointments,
+  updateCalendarAppointment,
+} from './services/googleCalendar'
 
 export default function App() {
   const [view, setView] = useState<ViewKey>('dashboard')
@@ -34,6 +42,7 @@ export default function App() {
   const [calendarAppointments, setCalendarAppointments] = useState<CalendarAppointment[]>([])
   const [calendarLoading, setCalendarLoading] = useState(false)
   const [calendarError, setCalendarError] = useState('')
+  const [calendarSyncing, setCalendarSyncing] = useState(false)
 
   async function loadLeadDetail(leadId: string) {
     setLeadDetailLoading(true)
@@ -245,6 +254,89 @@ export default function App() {
     setView('patient')
   }
 
+  async function refreshAll(nextSelectedLeadId?: string) {
+    await loadCrm()
+    if (nextSelectedLeadId ?? selectedLeadId) {
+      await loadLeadDetail(nextSelectedLeadId ?? selectedLeadId)
+    }
+  }
+
+  async function handleCalendarConnect() {
+    setCalendarSyncing(true)
+    try {
+      await connectGoogleCalendar()
+      await loadCalendar(crmLeads)
+    } finally {
+      setCalendarSyncing(false)
+    }
+  }
+
+  async function handleCreateAppointment(leadId: string, input: { start: string; end: string; appointmentType: 'valoracion' | 'limpieza'; notes: string }) {
+    const lead = crmLeads.find((item) => item.id === leadId)
+    if (!lead) throw new Error('No encontramos el paciente para crear la cita.')
+
+    setCalendarSyncing(true)
+    try {
+      const event = await createCalendarAppointment({ lead, ...input })
+      const syncedLead = await syncDentalLeadAppointment({
+        lead,
+        appointmentDate: event.start,
+        appointmentStatus: 'CITA_CONFIRMADA',
+        appointmentType: input.appointmentType,
+        calendarEventId: event.id,
+        notes: input.notes,
+      })
+      setCrmLeads((current) => current.map((item) => (item.id === syncedLead.id ? syncedLead : item)))
+      await Promise.all([loadCalendar(crmLeads), loadLeadDetail(leadId)])
+    } finally {
+      setCalendarSyncing(false)
+    }
+  }
+
+  async function handleUpdateAppointment(leadId: string, eventId: string, input: { start: string; end: string; appointmentType: 'valoracion' | 'limpieza'; notes: string }) {
+    const lead = crmLeads.find((item) => item.id === leadId)
+    if (!lead) throw new Error('No encontramos el paciente para actualizar la cita.')
+
+    setCalendarSyncing(true)
+    try {
+      const event = await updateCalendarAppointment(eventId, { lead, ...input })
+      const syncedLead = await syncDentalLeadAppointment({
+        lead,
+        appointmentDate: event.start,
+        appointmentStatus: 'CITA_CONFIRMADA',
+        appointmentType: input.appointmentType,
+        calendarEventId: event.id,
+        notes: input.notes,
+      })
+      setCrmLeads((current) => current.map((item) => (item.id === syncedLead.id ? syncedLead : item)))
+      await Promise.all([loadCalendar(crmLeads), loadLeadDetail(leadId)])
+    } finally {
+      setCalendarSyncing(false)
+    }
+  }
+
+  async function handleDeleteAppointment(leadId: string, eventId: string) {
+    const lead = crmLeads.find((item) => item.id === leadId)
+    if (!lead) throw new Error('No encontramos el paciente para borrar la cita.')
+
+    setCalendarSyncing(true)
+    try {
+      await deleteCalendarAppointment(eventId)
+      const syncedLead = await syncDentalLeadAppointment({
+        lead,
+        appointmentDate: '',
+        appointmentStatus: 'CITA_CANCELADA',
+        appointmentType: '',
+        calendarEventId: '',
+        notes: '',
+      })
+      setCrmLeads((current) => current.map((item) => (item.id === syncedLead.id ? syncedLead : item)))
+      await Promise.all([loadCalendar(crmLeads), loadLeadDetail(leadId)])
+    } finally {
+      setCalendarSyncing(false)
+    }
+  }
+
   const topbarLabel = crmLoading ? 'Sincronizando' : `${crmLeads.length} pacientes en CRM`
 
   return (
@@ -301,6 +393,8 @@ export default function App() {
               detail={leadDetail}
               detailLoading={leadDetailLoading}
               detailError={leadDetailError}
+              calendarAppointments={calendarAppointments}
+              calendarBusy={calendarSyncing}
               stages={crmStages}
               movingLeadId={movingLeadId}
               onMoveLead={handleMoveLead}
@@ -308,6 +402,10 @@ export default function App() {
               onBackToCrm={() => setView('dashboard')}
               onSaveDetail={handleSaveLeadDetail}
               onUpdateKioskStatus={handleUpdateKioskStatus}
+              onCalendarConnect={handleCalendarConnect}
+              onCreateAppointment={handleCreateAppointment}
+              onUpdateAppointment={handleUpdateAppointment}
+              onDeleteAppointment={handleDeleteAppointment}
             />
           )}
           {view === 'automation' && <AutomationView />}
