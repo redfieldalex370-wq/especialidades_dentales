@@ -59,6 +59,8 @@ export async function listCalendarAppointments(leads: CrmLead[], options?: { day
   if (!isGoogleCalendarConfigured) return []
 
   const now = new Date()
+  const startOfToday = new Date(now)
+  startOfToday.setHours(0, 0, 0, 0)
   const daysAhead = options?.daysAhead ?? 30
   const end = new Date(now)
   end.setDate(end.getDate() + daysAhead)
@@ -67,7 +69,7 @@ export async function listCalendarAppointments(leads: CrmLead[], options?: { day
     key: apiKey!,
     singleEvents: 'true',
     orderBy: 'startTime',
-    timeMin: now.toISOString(),
+    timeMin: startOfToday.toISOString(),
     timeMax: end.toISOString(),
     maxResults: '100',
   })
