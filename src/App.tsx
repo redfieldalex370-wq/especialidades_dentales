@@ -4,7 +4,7 @@ import { AutomationView } from './views/AutomationView'
 import { DashboardView } from './views/DashboardView'
 import { PatientView } from './views/PatientView'
 import { WaitingRoomView } from './views/WaitingRoomView'
-import type { CrmLead, CrmLeadDetail, CrmStage, DentalLeadDetailUpdate, KioskFlow, KioskLeadStatus } from './types'
+import type { CalendarAppointment, CrmLead, CrmLeadDetail, CrmStage, DentalLeadDetailUpdate, KioskFlow, KioskLeadStatus } from './types'
 import {
   AVAILABLE_COMPANIES,
   type CrmCompanyKey,
@@ -18,6 +18,7 @@ import {
   updateDentalLeadKioskState,
   updateDentalLeadStage,
 } from './services/crm'
+import { isGoogleCalendarConfigured, listCalendarAppointments } from './services/googleCalendar'
 
 export default function App() {
   const [view, setView] = useState<ViewKey>('dashboard')
@@ -33,6 +34,9 @@ export default function App() {
   const [leadDetail, setLeadDetail] = useState<CrmLeadDetail | null>(null)
   const [leadDetailLoading, setLeadDetailLoading] = useState(false)
   const [leadDetailError, setLeadDetailError] = useState('')
+  const [calendarAppointments, setCalendarAppointments] = useState<CalendarAppointment[]>([])
+  const [calendarLoading, setCalendarLoading] = useState(false)
+  const [calendarError, setCalendarError] = useState('')
 
   async function loadLeadDetail(leadId: string) {
     setLeadDetailLoading(true)
@@ -68,20 +72,50 @@ export default function App() {
     }
   }
 
+  async function loadCalendar(leads: CrmLead[]) {
+    if (!isGoogleCalendarConfigured) {
+      setCalendarAppointments([])
+      setCalendarError('Google Calendar no está configurado todavía.')
+      return
+    }
+
+    setCalendarLoading(true)
+    setCalendarError('')
+
+    try {
+      const items = await listCalendarAppointments(leads)
+      setCalendarAppointments(items)
+    } catch (error) {
+      setCalendarAppointments([])
+      setCalendarError(error instanceof Error ? error.message : 'No se pudo leer Google Calendar.')
+    } finally {
+      setCalendarLoading(false)
+    }
+  }
+
   useEffect(() => {
     void loadCrm()
   }, [companyKey])
 
   useEffect(() => {
+    if (crmLeads.length > 0) {
+      void loadCalendar(crmLeads)
+    } else if (isGoogleCalendarConfigured) {
+      void loadCalendar([])
+    }
+  }, [crmLeads])
+
+  useEffect(() => {
     const timer = window.setInterval(() => {
       void loadCrm()
+      void loadCalendar(crmLeads)
       if (selectedLeadId) {
         void loadLeadDetail(selectedLeadId)
       }
     }, 30_000)
 
     return () => window.clearInterval(timer)
-  }, [companyKey, selectedLeadId])
+  }, [companyKey, selectedLeadId, crmLeads])
 
   const selectedLead = useMemo(
     () => crmLeads.find((lead) => lead.id === selectedLeadId) ?? null,
@@ -247,6 +281,9 @@ export default function App() {
           {view === 'dashboard' && (
             <DashboardView
               leads={crmLeads}
+              calendarAppointments={calendarAppointments}
+              calendarLoading={calendarLoading}
+              calendarError={calendarError}
               stages={crmStages}
               loading={crmLoading}
               error={crmError}
@@ -261,6 +298,8 @@ export default function App() {
           {view === 'waiting' && (
             <WaitingRoomView
               leads={crmLeads}
+              calendarAppointments={calendarAppointments}
+              calendarLoading={calendarLoading}
               loading={crmLoading}
               onRefresh={() => void loadCrm()}
               onOpenLead={openLead}

@@ -1,8 +1,10 @@
 import { FormEvent, useDeferredValue, useMemo, useState } from 'react'
-import type { CrmLead, KioskFlow, KioskLeadStatus } from '../types'
+import type { CalendarAppointment, CrmLead, KioskFlow, KioskLeadStatus } from '../types'
 
 interface Props {
   leads: CrmLead[]
+  calendarAppointments: CalendarAppointment[]
+  calendarLoading: boolean
   loading: boolean
   onRefresh: () => void
   onOpenLead: (leadId: string) => void
@@ -12,6 +14,8 @@ interface Props {
 
 export function WaitingRoomView({
   leads,
+  calendarAppointments,
+  calendarLoading,
   loading,
   onRefresh,
   onOpenLead,
@@ -32,10 +36,10 @@ export function WaitingRoomView({
 
   const todayAppointments = useMemo(
     () =>
-      leads
-        .filter((lead) => lead.appointmentDate && lead.appointmentConfirmed && isSameDay(lead.appointmentDate, new Date()))
-        .sort((a, b) => new Date(a.appointmentDate).getTime() - new Date(b.appointmentDate).getTime()),
-    [leads],
+      calendarAppointments
+        .filter((item) => isSameDay(item.start, new Date()) && isActiveCalendarAppointment(item.status))
+        .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime()),
+    [calendarAppointments],
   )
 
   const visiblePatients = useMemo(() => {
@@ -43,7 +47,9 @@ export function WaitingRoomView({
     const normalizedPhone = deferredPhoneSearch.trim().replace(/\D/g, '')
     if (!normalizedName && !normalizedPhone) return []
 
-    const source = mode === 'con_cita' ? leads.filter((lead) => lead.appointmentDate) : leads
+    const source = mode === 'con_cita'
+      ? leads.filter((lead) => calendarAppointments.some((item) => item.matchedLeadId === lead.id))
+      : leads
 
     return source
       .filter((lead) => {
@@ -81,12 +87,15 @@ export function WaitingRoomView({
     [leads],
   )
 
-  const pendingToday = useMemo(
-    () =>
-      todayAppointments.filter((lead) => lead.kioskStatus === 'pendiente')
-        .slice(0, 8),
-    [todayAppointments],
-  )
+  const pendingToday = useMemo(() => {
+    const leadsById = new Map(leads.map((lead) => [lead.id, lead]))
+    return todayAppointments
+      .filter((item) => {
+        const lead = item.matchedLeadId ? leadsById.get(item.matchedLeadId) : null
+        return !lead || lead.kioskStatus === 'pendiente'
+      })
+      .slice(0, 8)
+  }, [todayAppointments, leads])
 
   async function handleArrival(lead: CrmLead, kioskFlow: KioskFlow) {
     setBusyLeadId(lead.id)
@@ -152,7 +161,7 @@ export function WaitingRoomView({
           <div className="hero-actions">
             <span className="soft-pill">{todayAppointments.length} citas confirmadas hoy</span>
             <button className="secondary-button" onClick={onRefresh} disabled={loading}>
-              {loading ? 'Actualizando...' : 'Actualizar'}
+              {loading || calendarLoading ? 'Actualizando...' : 'Actualizar'}
             </button>
           </div>
         </div>
@@ -239,7 +248,7 @@ export function WaitingRoomView({
       </section>
 
       <section className="metric-grid">
-        <MetricCard label="Citas de hoy" value={todayAppointments.length} hint="confirmadas" />
+          <MetricCard label="Citas de hoy" value={todayAppointments.length} hint="confirmadas" />
         <MetricCard label="Ya llegaron" value={waitingPatients.length + (currentPatient ? 1 : 0)} hint="recepcion" />
         <MetricCard label="En consulta" value={currentPatient ? 1 : 0} hint="doctor" />
         <MetricCard label="Pendientes" value={pendingToday.length} hint="sin llegada" />
@@ -320,15 +329,20 @@ export function WaitingRoomView({
 
           <div className="appointment-list">
             {todayAppointments.length > 0 ? (
-              todayAppointments.map((lead) => (
-                <button className="appointment-card" key={lead.id} onClick={() => onOpenLead(lead.id)}>
+              todayAppointments.map((appointment) => (
+                <button
+                  className="appointment-card"
+                  key={appointment.id}
+                  onClick={() => appointment.matchedLeadId && onOpenLead(appointment.matchedLeadId)}
+                  disabled={!appointment.matchedLeadId}
+                >
                   <div>
-                    <strong>{lead.name}</strong>
-                    <span>{lead.treatment || 'Cita confirmada'}</span>
+                    <strong>{appointment.patientName || appointment.title}</strong>
+                    <span>{appointment.title}</span>
                   </div>
                   <div className="appointment-card-meta">
-                    <strong>{formatTime(lead.appointmentDate)}</strong>
-                    <span>{labelForKioskStatus(lead.kioskStatus)}</span>
+                    <strong>{formatTime(appointment.start)}</strong>
+                    <span>{appointment.matchedLeadId ? 'Ficha disponible' : 'Solo Calendar'}</span>
                   </div>
                 </button>
               ))
@@ -447,4 +461,9 @@ function labelForKioskStatus(status: KioskLeadStatus): string {
     default:
       return 'Pendiente'
   }
+}
+
+function isActiveCalendarAppointment(status: string): boolean {
+  const normalized = status.toLowerCase()
+  return !normalized.includes('cancel')
 }

@@ -1,8 +1,11 @@
 import { useMemo } from 'react'
-import type { CrmLead, CrmStage } from '../types'
+import type { CalendarAppointment, CrmLead, CrmStage } from '../types'
 
 interface Props {
   leads: CrmLead[]
+  calendarAppointments: CalendarAppointment[]
+  calendarLoading: boolean
+  calendarError: string
   stages: CrmStage[]
   loading: boolean
   error: string
@@ -16,6 +19,9 @@ interface Props {
 
 export function DashboardView({
   leads,
+  calendarAppointments,
+  calendarLoading,
+  calendarError,
   stages,
   loading,
   error,
@@ -27,12 +33,12 @@ export function DashboardView({
   onRefresh,
 }: Props) {
   const now = new Date()
-  const todayAppointments = leads.filter((lead) => lead.appointmentDate && isSameDay(lead.appointmentDate, now) && isActiveAppointment(lead.appointmentStatus)).length
+  const todayAppointments = calendarAppointments.filter((item) => isSameDay(item.start, now) && isActiveAppointment(item.status)).length
   const quotedHighValue = leads.filter((lead) => (lead.quotedAmount ?? 0) >= 45000).length
   const overdueFollowups = leads.filter((lead) => isOverdue(lead.reminderAt, lead.reminderCompleted)).length
-  const upcomingAppointments = [...leads]
-    .filter((lead) => lead.appointmentDate && isActiveAppointment(lead.appointmentStatus) && isUpcomingOrToday(lead.appointmentDate, now))
-    .sort((a, b) => new Date(a.appointmentDate).getTime() - new Date(b.appointmentDate).getTime())
+  const upcomingAppointments = [...calendarAppointments]
+    .filter((item) => isActiveAppointment(item.status) && isUpcomingOrToday(item.start, now))
+    .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
     .slice(0, 6)
 
   return (
@@ -44,11 +50,11 @@ export function DashboardView({
         <MetricCard label="Casos > $45,000" value={quotedHighValue} hint="umbral de escalamiento" />
       </section>
 
-      {(error || pipelineWarning) && (
+      {(error || pipelineWarning || calendarError) && (
         <section className="panel warning-panel">
           <span className="eyebrow">Revision</span>
           <h2>Hay algo que revisar en la conexion</h2>
-          <p>{error || pipelineWarning}</p>
+          <p>{error || pipelineWarning || calendarError}</p>
         </section>
       )}
 
@@ -62,21 +68,27 @@ export function DashboardView({
             <div className="hero-actions">
               <span className="soft-pill">{upcomingAppointments.length} visibles</span>
               <button className="secondary-button" onClick={onRefresh} disabled={loading}>
-                {loading ? 'Actualizando...' : 'Actualizar CRM'}
+                {loading || calendarLoading ? 'Actualizando...' : 'Actualizar CRM'}
               </button>
             </div>
           </div>
 
           <div className="appointment-list">
             {upcomingAppointments.length > 0 ? (
-              upcomingAppointments.map((lead) => (
-                <button className="appointment-card" key={lead.id} onClick={() => onOpenLead(lead.id)}>
+              upcomingAppointments.map((appointment) => (
+                <button
+                  className="appointment-card"
+                  key={appointment.id}
+                  onClick={() => appointment.matchedLeadId && onOpenLead(appointment.matchedLeadId)}
+                  disabled={!appointment.matchedLeadId}
+                >
                   <div>
-                    <strong>{lead.name}</strong>
-                    <span>{lead.treatment || 'Cita confirmada'}</span>
+                    <strong>{appointment.patientName || appointment.title}</strong>
+                    <span>{appointment.title}</span>
                   </div>
                   <div className="appointment-card-meta">
-                    <strong>{formatTime(lead.appointmentDate)}</strong>
+                    <strong>{formatDateTime(appointment.start)}</strong>
+                    <span>{appointment.matchedLeadId ? 'Ficha disponible' : 'Solo Calendar'}</span>
                   </div>
                 </button>
               ))

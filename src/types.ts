@@ -150,3 +150,15 @@ export interface TraceEvent {
   type: string
   responsible: 'bot' | 'doctor' | 'closer' | 'sistema'
 }
+
+export interface CalendarAppointment {
+  id: string
+  title: string
+  description: string
+  start: string
+  end: string
+  status: string
+  location: string
+  patientName: string
+  matchedLeadId: string
+}
