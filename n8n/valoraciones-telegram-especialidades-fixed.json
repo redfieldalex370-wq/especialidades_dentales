@@ -1,0 +1,1497 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "5c0b19ec-0322-4e21-b9a8-01841c20ab16",
+                    "leftValue": "={{ ['cerrar','confirmar'].includes($json.accion) ? 'cerrar' : $json.accion }}",
+                    "rightValue": "cerrar",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "CERRAR"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "4ffffc20-a193-42c7-85c1-33706eaa897b",
+                    "leftValue": "={{ $json.accion }}",
+                    "rightValue": "corregir",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "CORREGIR"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "b40201c7-7493-440e-8296-7a993661c2ee",
+                    "leftValue": "={{ $json.accion }}",
+                    "rightValue": "continuar",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "CONTINUAR"
+            }
+          ]
+        },
+        "looseTypeValidation": true,
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "8d3bfcf2-fd10-4246-99d8-347ddcd761ed",
+      "name": "¿Cerrar, Corregir o Continuar?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.3,
+      "position": [
+        0,
+        6128
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "730436a3-7839-4cc9-978a-681b2a9f4375",
+                    "leftValue": "={{ String($json.session_ok) }}",
+                    "rightValue": "true",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "PACIENTE_OK"
+            }
+          ]
+        },
+        "looseTypeValidation": true,
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "47d0604c-fc18-4953-be7b-cba0cd2ecef1",
+      "name": "¿Paciente en consulta identificado?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.3,
+      "position": [
+        -224,
+        5536
+      ],
+      "notesInFlow": true,
+      "notes": "Solo continúa si hay una sesión ligada a un crm_lead_id."
+    },
+    {
+      "parameters": {
+        "chatId": "=7769926966",
+        "text": "={{ Number($json.pacientes_en_consulta || 0) === 0 ? '⚠️ No hay ningún paciente marcado como EN CONSULTA en la página.\\n\\nPrimero pasa al paciente a consulta y después envía el audio.' : '⚠️ Hay más de un paciente marcado como EN CONSULTA.\\n\\nCorrige la sala de espera antes de registrar el informe para evitar asignarlo al paciente equivocado.' }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "e6d18b91-69da-48d9-8612-1bb26b2ce368",
+      "name": "Telegram - Error Paciente en Consulta",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        5632
+      ],
+      "notesInFlow": true,
+      "webhookId": "46ee5a29-801f-489c-a707-a573b9438e2d",
+      "credentials": {
+        "telegramApi": {
+          "id": "gC58E3PqueyJuc6O",
+          "name": "ESP_DENTALES"
+        }
+      },
+      "notes": "No permite iniciar un informe sin un único paciente actual."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.telegram_chat_id }}",
+        "text": "Informe abierto. Envíame otro audio o texto con la información adicional. Cuando termines, pulsa «Guardar y cerrar» o escribe «cierra informe».",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "610c04a6-3a63-49f9-9098-6fa807c958f6",
+      "name": "Telegram - Continuar Informe",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        224,
+        6352
+      ],
+      "notesInFlow": true,
+      "webhookId": "73923e41-ff05-4eca-9958-411742d0a51f",
+      "credentials": {
+        "telegramApi": {
+          "id": "gC58E3PqueyJuc6O",
+          "name": "ESP_DENTALES"
+        }
+      },
+      "notes": "Mantiene el mismo borrador y crm_lead_id mientras el doctor agrega más información."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH objetivo AS (\n  SELECT vb.id\n  FROM public.valoraciones_borrador vb\n  WHERE vb.telegram_chat_id = $1\n    AND vb.estado = 'esperando_confirmacion'\n  ORDER BY vb.created_at DESC\n  LIMIT 1\n),\nreclamado AS (\n  UPDATE public.valoraciones_borrador vb\n  SET estado = 'procesando'\n  WHERE vb.id = (SELECT id FROM objetivo)\n    AND vb.estado = 'esperando_confirmacion'\n  RETURNING\n    vb.id AS borrador_id,\n    vb.telegram_chat_id,\n    vb.extraccion,\n    vb.estado\n)\nSELECT\n  true AS informe_ok,\n  r.borrador_id,\n  r.telegram_chat_id,\n  r.extraccion,\n  r.estado\nFROM reclamado r\n\nUNION ALL\n\nSELECT\n  false AS informe_ok,\n  NULL::uuid AS borrador_id,\n  $1::text AS telegram_chat_id,\n  '{}'::jsonb AS extraccion,\n  'sin_informe_abierto'::text AS estado\nWHERE NOT EXISTS (SELECT 1 FROM reclamado);",
+        "options": {
+          "queryReplacement": "={{ [ $json.telegram_chat_id ] }}"
+        }
+      },
+      "id": "cc6a429b-c99f-467e-bd3c-370c2648c28e",
+      "name": "PostgreSQL - Cerrar Informe por Texto",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -960,
+        5856
+      ],
+      "notesInFlow": true,
+      "credentials": {
+        "postgres": {
+          "id": "w9bHZ08UyzUUO0oK",
+          "name": "Postgres account 3"
+        }
+      },
+      "notes": "Permite cerrar el último informe abierto del doctor escribiendo «cierra informe»."
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "02572b0a-6113-4b70-bb6c-eb5b2a1d7ec9",
+                    "leftValue": "={{ String($json.informe_ok) }}",
+                    "rightValue": "true",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "INFORME_OK"
+            }
+          ]
+        },
+        "looseTypeValidation": true,
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "b11825a4-afa9-4c53-acc0-2dc4631abccc",
+      "name": "¿Hay informe abierto?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.3,
+      "position": [
+        -672,
+        5856
+      ],
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.telegram_chat_id }}",
+        "text": "⚠️ No hay un informe abierto para cerrar. Envía primero un audio o texto mientras el paciente esté marcado como EN CONSULTA.",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "567bbb11-c10d-4644-a990-f49330a7ff83",
+      "name": "Telegram - Sin Informe Abierto",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -448,
+        6000
+      ],
+      "notesInFlow": true,
+      "webhookId": "a1dbf351-ae80-4c6b-b153-3a70aaa9bed6",
+      "credentials": {
+        "telegramApi": {
+          "id": "gC58E3PqueyJuc6O",
+          "name": "ESP_DENTALES"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "4c3abf80-a038-4f78-97bb-8b44cba88e43",
+                    "leftValue": "={{ String($json.solo_cierre) }}",
+                    "rightValue": "true",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "SOLO_CIERRE"
+            }
+          ]
+        },
+        "looseTypeValidation": true,
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "060bceeb-bd0c-42c3-903d-ab383323fab7",
+      "name": "¿Audio solo dice cerrar informe?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.3,
+      "position": [
+        -1248,
+        5712
+      ],
+      "notesInFlow": true,
+      "notes": "Si el audio solo contiene la orden de cierre, no llama al extractor: cierra el informe abierto."
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c962ff1b-8ff5-47ff-8036-dfed22093cbf",
+                    "leftValue": "={{ String($json.extraccion?.cerrar_solicitado || false) }}",
+                    "rightValue": "true",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "CERRAR_AHORA"
+            }
+          ]
+        },
+        "looseTypeValidation": true,
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "863cc2ac-3e1f-4c2a-93fb-64b5a2a316be",
+      "name": "¿Cerrar informe después de guardar datos?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.3,
+      "position": [
+        0,
+        5440
+      ],
+      "notesInFlow": true,
+      "notes": "Permite decir «cierra informe» al final del mismo audio/texto con datos."
+    },
+    {
+      "parameters": {
+        "updates": [
+          "message",
+          "callback_query"
+        ],
+        "additionalFields": {
+          "download": false
+        }
+      },
+      "id": "2d46f719-d7fc-4fe1-b7cf-c9fc991ff1b0",
+      "name": "Telegram Trigger4",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -3040,
+        6032
+      ],
+      "webhookId": "96965f35-9f2b-42eb-8544-3b8c0c674e22",
+      "notesInFlow": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "gC58E3PqueyJuc6O",
+          "name": "ESP_DENTALES"
+        }
+      },
+      "notes": "Único trigger del bot. Recibe mensajes (texto/audio) y callback_query de Confirmar/Corregir."
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $input.first()?.json || {};\n\nlet evento = 'otro';\nif (d.callback_query) evento = 'callback';\nelse if (d.message) evento = 'message';\n\nreturn [{ json: { ...d, evento } }];"
+      },
+      "id": "885e2e2f-adaf-4d89-a22f-9d72ac780018",
+      "name": "Clasificar Actualización Telegram3",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2816,
+        6032
+      ],
+      "notesInFlow": true,
+      "notes": "Distingue mensajes normales de callbacks del teclado inline."
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "de84c6e2-24d6-4727-a574-ae5c30a00c23",
+                    "leftValue": "={{ $json.evento }}",
+                    "rightValue": "message",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "MESSAGE"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "dc1dd839-7a92-407a-a71e-b4b98e3381d3",
+                    "leftValue": "={{ $json.evento }}",
+                    "rightValue": "callback",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "CALLBACK"
+            }
+          ]
+        },
+        "looseTypeValidation": true,
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "cfc89978-462c-4e31-85a3-a7d1a6235609",
+      "name": "¿Mensaje o Callback?3",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.3,
+      "position": [
+        -2592,
+        6016
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const m = $json.message || {};\n\nfunction txt(v) {\n  if (v === null || v === undefined) return '';\n  return String(v).trim();\n}\n\nfunction normalizeCommand(v) {\n  return String(v || '')\n    .trim()\n    .toLowerCase()\n    .normalize('NFD')\n    .replace(/[\\u0300-\\u036f]/g, '')\n    .replace(/[.!?]+$/g, '')\n    .replace(/\\s+/g, ' ');\n}\n\nconst tieneVoice = !!m.voice?.file_id;\nconst tieneAudio = !!m.audio?.file_id;\nconst tieneTexto = txt(m.text) !== '';\n\nlet tipo = 'otro';\nlet file_id = '';\nlet texto = '';\n\nif (tieneVoice) {\n  tipo = 'audio';\n  file_id = txt(m.voice.file_id);\n} else if (tieneAudio) {\n  tipo = 'audio';\n  file_id = txt(m.audio.file_id);\n} else if (tieneTexto) {\n  texto = txt(m.text);\n  const cmd = normalizeCommand(texto);\n  const esCierre = /^(cierra|cerrar|finaliza|finalizar|termina|terminar)( el| la)? (informe|valoracion)$/.test(cmd)\n    || ['termine la valoracion', 'terminé la valoración', 'ya termine', 'ya terminé'].includes(texto.trim().toLowerCase());\n\n  tipo = esCierre ? 'cerrar' : 'texto';\n}\n\nreturn [{\n  json: {\n    tipo,\n    file_id,\n    texto,\n    telegram_chat_id: txt(m.chat?.id),\n    telegram_user_id: txt(m.from?.id),\n    telegram_username: txt(m.from?.username),\n    telegram_nombre: [txt(m.from?.first_name), txt(m.from?.last_name)].filter(Boolean).join(' ').trim(),\n    telegram_message_id: txt(m.message_id),\n    telegram_fecha_unix: Number(m.date || 0),\n    raw_message: m\n  }\n}];"
+      },
+      "id": "3d083a24-c010-452e-9a95-45f6d9a732fe",
+      "name": "Normalizar Telegram4",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2368,
+        5872
+      ],
+      "notesInFlow": true,
+      "notes": "Normaliza mensajes y detecta comandos de cierre de informe."
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "e059b548-be61-40e4-9dc4-0a156ea97275",
+                    "leftValue": "={{ $json.tipo }}",
+                    "rightValue": "texto",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "TEXTO"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "99a47c96-e2fb-4b80-933c-b18b5bcb8a60",
+                    "leftValue": "={{ $json.tipo }}",
+                    "rightValue": "audio",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "AUDIO"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c8f7a698-535b-4529-9c66-03e66fbc6850",
+                    "leftValue": "={{ $json.tipo }}",
+                    "rightValue": "cerrar",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "CERRAR"
+            }
+          ]
+        },
+        "looseTypeValidation": true,
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "bd715ac2-3deb-4479-a4e2-13028dd63088",
+      "name": "Switch Texto o Audio4",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.3,
+      "position": [
+        -2144,
+        5840
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $input.first()?.json || {};\nconst raw = String(d.texto || '').trim();\n\nfunction normalize(v) {\n  return String(v || '')\n    .toLowerCase()\n    .normalize('NFD')\n    .replace(/[\\u0300-\\u036f]/g, '');\n}\n\nconst closeRegex = /\\b(cierra|cerrar|finaliza|finalizar|finalice|termina|terminar|termine)\\s+(el\\s+|la\\s+)?(informe|valoracion)\\b/i;\nconst cerrar_solicitado = closeRegex.test(normalize(raw));\nconst limpio = raw.replace(/\\b(cierra|cerrar|finaliza|finalizar|finalice|termina|terminar|termine)\\s+(el\\s+|la\\s+)?(informe|valoraci[oó]n)\\b[.!]?/ig, '').trim();\n\nreturn [{\n  json: {\n    ...d,\n    texto_valoracion: limpio || raw,\n    texto_original: raw,\n    transcripcion: '',\n    tipo_entrada: 'texto',\n    cerrar_solicitado,\n    solo_cierre: cerrar_solicitado && limpio.length === 0\n  }\n}];"
+      },
+      "id": "f3e72d2d-641c-432b-97ed-a27f80bb087e",
+      "name": "Preparar Texto4",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1248,
+        5488
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "fileId": "={{ $json.file_id }}",
+        "additionalFields": {}
+      },
+      "id": "7627a9f0-ad3d-4965-8786-e7ca13cac989",
+      "name": "Telegram - Obtener Audio4",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1920,
+        5712
+      ],
+      "webhookId": "303fd887-390e-484e-96f5-8581c4c5b0b0",
+      "notesInFlow": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "gC58E3PqueyJuc6O",
+          "name": "ESP_DENTALES"
+        }
+      },
+      "notes": "Selecciona la misma credencial Telegram que en el Trigger."
+    },
+    {
+      "parameters": {
+        "resource": "audio",
+        "operation": "transcribe",
+        "options": {}
+      },
+      "id": "4c5c37ad-e9fe-48ce-ab32-03a124724a1e",
+      "name": "OpenAI - Transcribir Audio4",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.1,
+      "position": [
+        -1696,
+        5712
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "9v16Hv6w9c7piuyy",
+          "name": "OpenAi account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const t = $input.first()?.json || {};\nconst base = $('Normalizar Telegram4').first().json || {};\n\nconst transcript = String(t.text || t.transcript || t.output_text || t.output || '').trim();\n\nfunction normalize(v) {\n  return String(v || '')\n    .toLowerCase()\n    .normalize('NFD')\n    .replace(/[\\u0300-\\u036f]/g, '');\n}\n\nconst closeRegex = /\\b(cierra|cerrar|finaliza|finalizar|finalice|termina|terminar|termine)\\s+(el\\s+|la\\s+)?(informe|valoracion)\\b/i;\nconst cerrar_solicitado = closeRegex.test(normalize(transcript));\nconst limpio = transcript.replace(/\\b(cierra|cerrar|finaliza|finalizar|finalice|termina|terminar|termine)\\s+(el\\s+|la\\s+)?(informe|valoraci[oó]n)\\b[.!]?/ig, '').trim();\n\nreturn [{\n  json: {\n    ...base,\n    texto_valoracion: limpio || transcript,\n    texto_original: '',\n    transcripcion: transcript,\n    tipo_entrada: 'audio',\n    cerrar_solicitado,\n    solo_cierre: cerrar_solicitado && limpio.length === 0\n  }\n}];"
+      },
+      "id": "2cb2468a-3466-4cab-8652-b3b64a540c3b",
+      "name": "Preparar Transcripción4",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1472,
+        5712
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.texto_valoracion }}",
+        "options": {
+          "systemMessage": "Eres un extractor de información para valoraciones clínicas/dentales recibidas por Telegram.\n\nTu función es EXCLUSIVAMENTE convertir el texto recibido en datos estructurados.\nNO debes responder al profesional.\nNO debes diagnosticar por tu cuenta.\nNO debes completar datos ausentes.\nNO debes corregir ni reinterpretar clínicamente la valoración.\nExtrae únicamente lo que esté explícito o inequívocamente expresado.\n\nDevuelve EXCLUSIVAMENTE un objeto JSON válido, sin Markdown, sin ```json y sin texto adicional.\n\nUsa exactamente esta estructura:\n{\n  \"nombre_paciente\": \"\",\n  \"telefono_paciente\": \"\",\n  \"fecha_valoracion\": \"\",\n  \"motivo_consulta\": \"\",\n  \"hallazgos\": \"\",\n  \"diagnostico\": \"\",\n  \"tratamiento_recomendado\": \"\",\n  \"piezas_involucradas\": \"\",\n  \"urgencia\": \"sin_especificar\",\n  \"observaciones\": \"\",\n  \"tipo_valoracion\": \"\",\n  \"costo_cotizado\": null,\n  \"promocion_aplicada\": \"\",\n  \"objeciones\": \"\",\n  \"escalado_closer\": false,\n  \"escalado_motivo\": \"\",\n  \"requiere_revision_manual\": false,\n  \"razon_revision\": \"\"\n}\n\nReglas:\n- telefono_paciente: conserva únicamente números del teléfono del paciente mencionado.\n- fecha_valoracion: ISO YYYY-MM-DD o ISO datetime solo si se menciona una fecha concreta. Si no, \"\".\n- urgencia solo puede ser: sin_especificar, normal, prioritaria, urgente.\n- diagnostico solo si el profesional lo expresó.\n- tratamiento_recomendado solo si fue expresado.\n- costo_cotizado: solo si el doctor menciona un monto cotizado explícito, como número (sin signo de moneda ni comas). Si no lo menciona, usa null.\n- promocion_aplicada: solo si el doctor menciona explícitamente una promoción, descuento o paquete.\n- objeciones: solo si el doctor menciona que el paciente puso una objeción o duda para no proceder (precio, tiempo, miedo, etc.). Si no se menciona, usa \"\".\n- piezas_involucradas: solo aplica si el tratamiento es de prótesis. Lista de piezas dentales mencionadas, texto libre.\n- escalado_closer: true únicamente si el doctor dice explícitamente algo como \"no cerró, dar seguimiento\", \"escalar\", \"pásalo con el closer\" o equivalente.\n- escalado_motivo: si escalado_closer es true, resume en una frase corta por qué lo pidió el doctor. Si no, usa \"\".\n- Nunca inventes datos."
+        }
+      },
+      "id": "4d8fce52-3aa1-4ff7-9cb8-5334b2565bfe",
+      "name": "Agente - Extraer Valoración4",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        -1024,
+        5440
+      ],
+      "notesInFlow": true,
+      "notes": "Extrae la valoración en JSON."
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "builtInTools": {},
+        "options": {
+          "temperature": 0
+        }
+      },
+      "id": "3294250a-b713-4e06-a118-99ce011bdff6",
+      "name": "OpenAI - Modelo Extractor4",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        -960,
+        5664
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "9v16Hv6w9c7piuyy",
+          "name": "OpenAi account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const agent = $input.first()?.json || {};\nconst base = (() => {\n  try { return $('Preparar Texto4').first().json || {}; } catch (_) {}\n  try { return $('Preparar Transcripción4').first().json || {}; } catch (_) {}\n  return $('Normalizar Telegram4').first().json || {};\n})();\n\nfunction parseAny(v) {\n  if (v && typeof v === 'object') return v;\n  let s = String(v ?? '').trim();\n  if (!s) return {};\n  s = s.replace(/^```(?:json)?\\s*/i, '').replace(/\\s*```$/i, '').trim();\n  try { return JSON.parse(s); } catch (_) {}\n  const start = s.indexOf('{');\n  const end = s.lastIndexOf('}');\n  if (start >= 0 && end > start) {\n    try { return JSON.parse(s.slice(start, end + 1)); } catch (_) {}\n  }\n  return {};\n}\n\nconst extracted = parseAny(agent.output ?? agent.text ?? agent.response ?? agent);\nconst telefono = String(extracted.telefono_paciente || '').replace(/\\D/g, '');\nconst allowedUrgency = new Set(['sin_especificar', 'normal', 'prioritaria', 'urgente']);\nlet fecha = String(extracted.fecha_valoracion || '').trim();\nif (fecha && !/^\\d{4}-\\d{2}-\\d{2}(?:[T ][0-9:.\\-+Z]+)?$/i.test(fecha)) {\n  fecha = '';\n}\n\nlet costoCotizado = null;\nconst costoRaw = extracted.costo_cotizado;\nif (costoRaw !== null && costoRaw !== undefined && String(costoRaw).trim() !== '') {\n  const numero = Number(String(costoRaw).replace(/\\$/g, '').replace(/,/g, '').trim());\n  if (Number.isFinite(numero) && numero >= 0) costoCotizado = numero;\n}\n\nconst escaladoCloser =\n  extracted.escalado_closer === true ||\n  String(extracted.escalado_closer || '').trim().toLowerCase() === 'true';\n\nreturn [{\n  json: {\n    nombre_paciente: String(extracted.nombre_paciente || '').trim(),\n    telefono_paciente: telefono,\n    fecha_valoracion: fecha,\n    motivo_consulta: String(extracted.motivo_consulta || '').trim(),\n    hallazgos: String(extracted.hallazgos || '').trim(),\n    diagnostico: String(extracted.diagnostico || '').trim(),\n    tratamiento_recomendado: String(extracted.tratamiento_recomendado || '').trim(),\n    piezas_involucradas: String(extracted.piezas_involucradas || '').trim(),\n    urgencia: allowedUrgency.has(String(extracted.urgencia || '')) ? String(extracted.urgencia) : 'sin_especificar',\n    observaciones: String(extracted.observaciones || '').trim(),\n    tipo_valoracion: String(extracted.tipo_valoracion || '').trim(),\n    costo_cotizado: costoCotizado,\n    promocion_aplicada: String(extracted.promocion_aplicada || '').trim(),\n    objeciones: String(extracted.objeciones || '').trim(),\n    escalado_closer: escaladoCloser,\n    escalado_motivo: String(extracted.escalado_motivo || '').trim(),\n    requiere_revision_manual: extracted.requiere_revision_manual === true || String(extracted.requiere_revision_manual || '').trim().toLowerCase() === 'true',\n    razon_revision: String(extracted.razon_revision || '').trim(),\n    telegram_chat_id: String(base.telegram_chat_id || ''),\n    telegram_user_id: String(base.telegram_user_id || ''),\n    telegram_username: String(base.telegram_username || ''),\n    telegram_nombre: String(base.telegram_nombre || ''),\n    telegram_message_id: String(base.telegram_message_id || ''),\n    tipo_entrada: String(base.tipo_entrada || base.tipo || ''),\n    texto_original: String(base.texto_original || ''),\n    transcripcion: String(base.transcripcion || ''),\n    texto_fuente: String(base.texto_valoracion || base.texto || ''),\n    extraccion_ia: extracted,\n    cerrar_solicitado: Boolean(base.cerrar_solicitado),\n    solo_cierre: Boolean(base.solo_cierre)\n  }\n}];"
+      },
+      "id": "adca4f6f-bea9-4b2a-a89f-5997ea793378",
+      "name": "Validar Extracción4",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -672,
+        5536
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH entrada AS (\n  SELECT $1::jsonb AS j\n),\nactivos AS (\n  SELECT l.id\n  FROM public.crm_leads l\n  WHERE l.company_key = 'especialidades-dentales'\n    AND l.estado_consulta = 'en_consulta'\n  ORDER BY l.consulta_inicio_at DESC NULLS LAST, l.updated_at DESC NULLS LAST\n  LIMIT 2\n),\npaciente_activo AS (\n  SELECT (array_agg(id))[1] AS crm_lead_id\n  FROM activos\n  HAVING count(*) = 1\n),\nborrador_existente AS (\n  SELECT vb.id, vb.extraccion\n  FROM public.valoraciones_borrador vb\n  CROSS JOIN entrada e\n  WHERE vb.telegram_chat_id = e.j->>'telegram_chat_id'\n    AND vb.estado = 'esperando_confirmacion'\n  ORDER BY vb.created_at DESC\n  LIMIT 1\n),\npayload AS (\n  SELECT\n    e.j,\n    e.j\n      || jsonb_build_object(\n        'crm_lead_id',\n        (SELECT crm_lead_id::text FROM paciente_activo)\n      ) AS extraccion\n  FROM entrada e\n),\nactualizado AS (\n  UPDATE public.valoraciones_borrador vb\n  SET extraccion = COALESCE(be.extraccion, '{}'::jsonb) || p.extraccion\n  FROM borrador_existente be\n  CROSS JOIN payload p\n  WHERE vb.id = be.id\n  RETURNING\n    vb.id,\n    vb.telegram_chat_id,\n    vb.extraccion,\n    vb.estado\n),\ncreado AS (\n  INSERT INTO public.valoraciones_borrador (\n    telegram_chat_id,\n    extraccion,\n    estado\n  )\n  SELECT\n    p.j->>'telegram_chat_id',\n    p.extraccion,\n    'esperando_confirmacion'\n  FROM payload p\n  WHERE NOT EXISTS (SELECT 1 FROM borrador_existente)\n  RETURNING\n    id,\n    telegram_chat_id,\n    extraccion,\n    estado\n)\nSELECT\n  ((SELECT count(*) FROM activos) = 1) AS session_ok,\n  (SELECT count(*)::integer FROM activos) AS pacientes_en_consulta,\n\n  COALESCE(\n    (SELECT id FROM actualizado LIMIT 1),\n    (SELECT id FROM creado LIMIT 1)\n  ) AS id,\n\n  COALESCE(\n    (SELECT telegram_chat_id FROM actualizado LIMIT 1),\n    (SELECT telegram_chat_id FROM creado LIMIT 1)\n  ) AS telegram_chat_id,\n\n  COALESCE(\n    (SELECT extraccion FROM actualizado LIMIT 1),\n    (SELECT extraccion FROM creado LIMIT 1)\n  ) AS extraccion,\n\n  COALESCE(\n    (SELECT estado FROM actualizado LIMIT 1),\n    (SELECT estado FROM creado LIMIT 1)\n  ) AS estado;",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify($json) ] }}"
+        }
+      },
+      "id": "7897de03-cb32-4011-b616-010ccffce44f",
+      "name": "PostgreSQL - Guardar Borrador3",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -448,
+        5536
+      ],
+      "notesInFlow": true,
+      "credentials": {
+        "postgres": {
+          "id": "w9bHZ08UyzUUO0oK",
+          "name": "Postgres account 3"
+        }
+      },
+      "notes": "Abre o reutiliza una sesión de informe. Fija crm_lead_id al paciente que está en_consulta y acumula audios/textos sin cambiar de paciente."
+    },
+    {
+      "parameters": {
+        "chatId": "=7769926966",
+        "text": "={{ (() => {\n  const e = $json.extraccion || {};\n  const costo = e.costo_cotizado === null || e.costo_cotizado === undefined ? 'No indicado' : '$' + Number(e.costo_cotizado).toLocaleString('es-MX');\n  const val = (v) => String(v || '').trim() || 'No indicado';\n  return '🦷 Informe en curso\\n\\n' +\n    'Paciente: ' + val(e.nombre_paciente) + '\\n' +\n    'Motivo: ' + val(e.motivo_consulta) + '\\n' +\n    'Hallazgos: ' + val(e.hallazgos) + '\\n' +\n    'Diagnóstico: ' + val(e.diagnostico) + '\\n' +\n    'Tratamiento: ' + val(e.tratamiento_recomendado) + '\\n' +\n    'Piezas: ' + val(e.piezas_involucradas) + '\\n' +\n    'Costo cotizado: ' + costo + '\\n' +\n    'Promoción: ' + val(e.promocion_aplicada) + '\\n' +\n    'Objeciones: ' + val(e.objeciones) + '\\n' +\n    'Urgencia: ' + val(e.urgencia) + '\\n' +\n    'Escalar a closer: ' + (e.escalado_closer ? 'Sí' : 'No') +\n    (e.escalado_closer ? '\\nMotivo de escalamiento: ' + val(e.escalado_motivo) : '') +\n    '\\n\\nPuedes mandar otro audio/texto para agregar información, o cerrar el informe.';\n})() }}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "✅ Guardar y cerrar",
+                    "additionalFields": {
+                      "callback_data": "={{ 'cerrar:' + $json.id }}"
+                    }
+                  },
+                  {
+                    "text": "➕ Agregar más",
+                    "additionalFields": {
+                      "callback_data": "={{ 'continuar:' + $json.id }}"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "✏️ Corregir desde cero",
+                    "additionalFields": {
+                      "callback_data": "={{ 'corregir:' + $json.id }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "1ea12b22-d494-4260-b9d8-182e63011707",
+      "name": "Telegram - Enviar Resumen para Confirmar3",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        224,
+        5424
+      ],
+      "notesInFlow": true,
+      "webhookId": "69eadc2e-1627-4f5f-9052-fb86d0b908db",
+      "credentials": {
+        "telegramApi": {
+          "id": "gC58E3PqueyJuc6O",
+          "name": "ESP_DENTALES"
+        }
+      },
+      "notes": "Muestra el acumulado del informe. El doctor puede agregar más información o guardar y cerrar."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.telegram_chat_id }}",
+        "text": "Este bot recibe valoraciones por texto, nota de voz o archivo de audio.",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "c44c01f2-005f-45dd-bdbb-cc75e9fdeb54",
+      "name": "Telegram - Tipo no soportado4",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1920,
+        6048
+      ],
+      "notesInFlow": true,
+      "webhookId": "e1564530-5690-409a-8866-b5bfdd0fe3bf",
+      "credentials": {
+        "telegramApi": {
+          "id": "gC58E3PqueyJuc6O",
+          "name": "ESP_DENTALES"
+        }
+      },
+      "notes": "Selecciona la misma credencial del bot."
+    },
+    {
+      "parameters": {
+        "jsCode": "const cq = $json.callback_query || {};\nconst data = String(cq.data || '').trim();\nconst idx = data.indexOf(':');\nconst accion = idx >= 0 ? data.slice(0, idx) : data;\nconst borradorId = idx >= 0 ? data.slice(idx + 1) : '';\n\nreturn [{\n  json: {\n    accion,\n    borrador_id: borradorId,\n    callback_query_id: String(cq.id || ''),\n    telegram_chat_id: String(cq.message?.chat?.id || ''),\n    telegram_message_id: String(cq.message?.message_id || ''),\n    telegram_user_id: String(cq.from?.id || ''),\n    raw_callback: cq\n  }\n}];"
+      },
+      "id": "46765a30-3673-4a58-b806-8658bb0a075c",
+      "name": "Procesar Callback Confirmación3",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        6272
+      ],
+      "notesInFlow": true,
+      "notes": "Lee callback_data cerrar/confirmar, corregir o continuar y conserva el borrador_id."
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $json.callback_query_id }}",
+        "additionalFields": {
+          "show_alert": false,
+          "text": "={{ ['cerrar','confirmar'].includes($json.accion) ? 'Cerrando informe…' : ($json.accion === 'continuar' ? 'Informe abierto' : 'Corrección solicitada') }}"
+        }
+      },
+      "id": "186e1834-3bcc-4240-9457-947f48489a3d",
+      "name": "Telegram - Responder Callback3",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        6384
+      ],
+      "notesInFlow": true,
+      "webhookId": "074ebb98-a5b5-4318-a177-0b28a2ccad8b",
+      "credentials": {
+        "telegramApi": {
+          "id": "gC58E3PqueyJuc6O",
+          "name": "ESP_DENTALES"
+        }
+      },
+      "notes": "Cierra el indicador de carga del botón inline en Telegram."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.valoraciones_borrador\nSET estado = 'procesando'\nWHERE id = $1::uuid\n  AND estado = 'esperando_confirmacion'\nRETURNING\n  id AS borrador_id,\n  telegram_chat_id,\n  extraccion,\n  estado;",
+        "options": {
+          "queryReplacement": "={{ [ $json.borrador_id || $json.id ] }}"
+        }
+      },
+      "id": "84519f01-7e0e-4e6b-88ed-cb0f24d85edd",
+      "name": "PostgreSQL - Reclamar Borrador3",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        5616
+      ],
+      "notesInFlow": true,
+      "credentials": {
+        "postgres": {
+          "id": "w9bHZ08UyzUUO0oK",
+          "name": "Postgres account 3"
+        }
+      },
+      "notes": "Cambia esperando_confirmacion → procesando de forma atómica para evitar doble confirmación."
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $input.first()?.json || {};\nconst e = d.extraccion && typeof d.extraccion === 'object' ? d.extraccion : {};\nreturn [{ json: { ...e, borrador_id: String(d.borrador_id || '') } }];"
+      },
+      "id": "eb683431-df44-42cc-bd4c-d01c13165d17",
+      "name": "Preparar Valoración Confirmada3",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        5712
+      ],
+      "notesInFlow": true,
+      "notes": "Restaura el JSON validado del borrador para alimentar el guardado real."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.valoraciones_borrador\nSET estado = 'descartado'\nWHERE id = $1::uuid\n  AND estado = 'esperando_confirmacion'\nRETURNING\n  id AS borrador_id,\n  telegram_chat_id,\n  estado;",
+        "options": {
+          "queryReplacement": "={{ [ $json.borrador_id ] }}"
+        }
+      },
+      "id": "8882f980-8bb6-429f-8ebb-02f5b7284b2b",
+      "name": "PostgreSQL - Descartar Borrador3",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        6160
+      ],
+      "notesInFlow": true,
+      "credentials": {
+        "postgres": {
+          "id": "w9bHZ08UyzUUO0oK",
+          "name": "Postgres account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.telegram_chat_id }}",
+        "text": "✏️ Valoración descartada.\n\nMándame nuevamente el texto o audio con la información corregida.",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "04054008-8b0d-4a37-b180-6189179eaeb1",
+      "name": "Telegram - Solicitar Corrección3",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        448,
+        6160
+      ],
+      "notesInFlow": true,
+      "webhookId": "21bf6356-57fb-4f26-b621-dd9b6ae010d3",
+      "credentials": {
+        "telegramApi": {
+          "id": "gC58E3PqueyJuc6O",
+          "name": "ESP_DENTALES"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH payload AS (\n  SELECT $1::jsonb AS j\n),\nentrada AS (\n  SELECT\n    NULLIF(j->>'crm_lead_id', '')::uuid AS crm_lead_id,\n    NULLIF(j->>'nombre_paciente', '') AS nombre_paciente,\n    NULLIF(regexp_replace(COALESCE(j->>'telefono_paciente', ''), '[^0-9]', '', 'g'), '') AS telefono_paciente,\n    NULLIF(j->>'fecha_valoracion', '')::timestamptz AS fecha_valoracion,\n    NULLIF(j->>'motivo_consulta', '') AS motivo_consulta,\n    NULLIF(j->>'hallazgos', '') AS hallazgos,\n    NULLIF(j->>'diagnostico', '') AS diagnostico,\n    NULLIF(j->>'tratamiento_recomendado', '') AS tratamiento_recomendado,\n    NULLIF(j->>'piezas_involucradas', '') AS piezas_involucradas,\n    COALESCE(NULLIF(j->>'urgencia', ''), 'sin_especificar') AS urgencia,\n    NULLIF(j->>'observaciones', '') AS observaciones,\n    NULLIF(j->>'tipo_valoracion', '') AS tipo_valoracion,\n    NULLIF(j->>'costo_cotizado', '')::numeric AS costo_cotizado,\n    NULLIF(j->>'promocion_aplicada', '') AS promocion_aplicada,\n    NULLIF(j->>'objeciones', '') AS objeciones,\n    COALESCE((j->>'escalado_closer')::boolean, false) AS escalado_closer,\n    NULLIF(j->>'escalado_motivo', '') AS escalado_motivo,\n    COALESCE((j->>'requiere_revision_manual')::boolean, false) AS requiere_revision_manual,\n    NULLIF(j->>'razon_revision', '') AS razon_revision,\n    j->>'telegram_chat_id' AS telegram_chat_id,\n    NULLIF(j->>'telegram_user_id', '') AS telegram_user_id,\n    NULLIF(j->>'telegram_username', '') AS telegram_username,\n    j->>'telegram_message_id' AS telegram_message_id,\n    COALESCE(NULLIF(j->>'tipo_entrada', ''), 'texto') AS tipo_entrada,\n    NULLIF(j->>'texto_original', '') AS texto_original,\n    NULLIF(j->>'transcripcion', '') AS transcripcion,\n    COALESCE(j->'extraccion_ia', '{}'::jsonb) AS extraccion_ia,\n    NULLIF(j->>'borrador_id', '')::uuid AS borrador_id\n  FROM payload\n),\ncandidatos AS (\n  SELECT DISTINCT c.usuario_id\n  FROM public.wa_conversaciones c\n  CROSS JOIN entrada e\n  WHERE c.usuario_id IS NOT NULL\n    AND (\n      (\n        e.telefono_paciente IS NOT NULL\n        AND right(regexp_replace(COALESCE(c.wa_id, ''), '[^0-9]', '', 'g'), 10) = right(e.telefono_paciente, 10)\n      )\n      OR\n      (\n        e.telefono_paciente IS NULL\n        AND e.nombre_paciente IS NOT NULL\n        AND lower(btrim(COALESCE(c.nombre, ''))) = lower(btrim(e.nombre_paciente))\n      )\n    )\n),\nresuelto AS (\n  SELECT\n    CASE WHEN COUNT(*) = 1 THEN (array_agg(usuario_id))[1] ELSE NULL END AS usuario_id,\n    COUNT(*)::integer AS coincidencias\n  FROM candidatos\n),\nguardado AS (\n  INSERT INTO public.valoraciones_pacientes (\n    usuario_id,\n    crm_lead_id,\n    telegram_chat_id,\n    telegram_user_id,\n    telegram_username,\n    telegram_message_id,\n    origen,\n    tipo_entrada,\n    texto_original,\n    transcripcion,\n    nombre_paciente,\n    telefono_paciente,\n    fecha_valoracion,\n    motivo_consulta,\n    hallazgos,\n    diagnostico,\n    tratamiento_recomendado,\n    piezas_involucradas,\n    urgencia,\n    observaciones,\n    tipo_valoracion,\n    costo_cotizado,\n    promocion_aplicada,\n    objeciones,\n    escalado_closer,\n    escalado_motivo,\n    estado_vinculacion,\n    extraccion_ia,\n    updated_at\n  )\n  SELECT\n    r.usuario_id,\n    e.crm_lead_id,\n    e.telegram_chat_id,\n    e.telegram_user_id,\n    e.telegram_username,\n    e.telegram_message_id,\n    'telegram',\n    e.tipo_entrada,\n    e.texto_original,\n    e.transcripcion,\n    e.nombre_paciente,\n    e.telefono_paciente,\n    COALESCE(e.fecha_valoracion, now()),\n    e.motivo_consulta,\n    e.hallazgos,\n    e.diagnostico,\n    e.tratamiento_recomendado,\n    e.piezas_involucradas,\n    e.urgencia,\n    e.observaciones,\n    e.tipo_valoracion,\n    e.costo_cotizado,\n    e.promocion_aplicada,\n    e.objeciones,\n    e.escalado_closer,\n    e.escalado_motivo,\n    CASE\n      WHEN e.crm_lead_id IS NOT NULL AND NOT e.requiere_revision_manual THEN 'vinculada'\n      WHEN e.crm_lead_id IS NOT NULL THEN 'vinculada_revision'\n      WHEN r.usuario_id IS NOT NULL AND NOT e.requiere_revision_manual THEN 'vinculada'\n      WHEN r.usuario_id IS NOT NULL THEN 'vinculada_revision'\n      ELSE 'pendiente_vincular'\n    END,\n    e.extraccion_ia,\n    now()\n  FROM entrada e\n  CROSS JOIN resuelto r\n  ON CONFLICT (telegram_chat_id, telegram_message_id)\n  DO UPDATE SET\n    usuario_id = COALESCE(EXCLUDED.usuario_id, valoraciones_pacientes.usuario_id),\n    crm_lead_id = COALESCE(EXCLUDED.crm_lead_id, valoraciones_pacientes.crm_lead_id),\n    tipo_entrada = EXCLUDED.tipo_entrada,\n    texto_original = COALESCE(EXCLUDED.texto_original, valoraciones_pacientes.texto_original),\n    transcripcion = COALESCE(EXCLUDED.transcripcion, valoraciones_pacientes.transcripcion),\n    nombre_paciente = COALESCE(EXCLUDED.nombre_paciente, valoraciones_pacientes.nombre_paciente),\n    telefono_paciente = COALESCE(EXCLUDED.telefono_paciente, valoraciones_pacientes.telefono_paciente),\n    fecha_valoracion = COALESCE(EXCLUDED.fecha_valoracion, valoraciones_pacientes.fecha_valoracion),\n    motivo_consulta = COALESCE(EXCLUDED.motivo_consulta, valoraciones_pacientes.motivo_consulta),\n    hallazgos = COALESCE(EXCLUDED.hallazgos, valoraciones_pacientes.hallazgos),\n    diagnostico = COALESCE(EXCLUDED.diagnostico, valoraciones_pacientes.diagnostico),\n    tratamiento_recomendado = COALESCE(EXCLUDED.tratamiento_recomendado, valoraciones_pacientes.tratamiento_recomendado),\n    piezas_involucradas = COALESCE(EXCLUDED.piezas_involucradas, valoraciones_pacientes.piezas_involucradas),\n    urgencia = EXCLUDED.urgencia,\n    observaciones = COALESCE(EXCLUDED.observaciones, valoraciones_pacientes.observaciones),\n    tipo_valoracion = COALESCE(EXCLUDED.tipo_valoracion, valoraciones_pacientes.tipo_valoracion),\n    costo_cotizado = COALESCE(EXCLUDED.costo_cotizado, valoraciones_pacientes.costo_cotizado),\n    promocion_aplicada = COALESCE(EXCLUDED.promocion_aplicada, valoraciones_pacientes.promocion_aplicada),\n    objeciones = COALESCE(EXCLUDED.objeciones, valoraciones_pacientes.objeciones),\n    escalado_closer = EXCLUDED.escalado_closer,\n    escalado_motivo = COALESCE(EXCLUDED.escalado_motivo, valoraciones_pacientes.escalado_motivo),\n    estado_vinculacion = EXCLUDED.estado_vinculacion,\n    extraccion_ia = EXCLUDED.extraccion_ia,\n    updated_at = now()\n  RETURNING *\n),\nborrador_confirmado AS (\n  UPDATE public.valoraciones_borrador vb\n  SET estado = 'confirmado'\n  FROM entrada e\n  WHERE e.borrador_id IS NOT NULL\n    AND vb.id = e.borrador_id\n    AND vb.estado = 'procesando'\n  RETURNING vb.id\n)\nSELECT\n  g.id AS valoracion_id,\n  g.crm_lead_id,\n  g.telegram_chat_id,\n  COALESCE(g.nombre_paciente, '') AS nombre_paciente,\n  COALESCE(g.telefono_paciente, '') AS telefono_paciente,\n  g.estado_vinculacion,\n  g.costo_cotizado,\n  g.escalado_closer\nFROM guardado g;",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify($json) ] }}"
+        }
+      },
+      "id": "129db13b-efbd-4518-a9df-f7956b1bd822",
+      "name": "PostgreSQL - Guardar Valoración4",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        672,
+        5712
+      ],
+      "notesInFlow": true,
+      "credentials": {
+        "postgres": {
+          "id": "w9bHZ08UyzUUO0oK",
+          "name": "Postgres account 3"
+        }
+      },
+      "notes": "Guarda el informe confirmado conservando el crm_lead_id fijado al iniciar la sesión."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH v AS (\n  SELECT * FROM public.valoraciones_pacientes WHERE id = $1::uuid\n),\ndirecto AS (\n  SELECT l.id AS lead_id, l.company_key, l.wa_id, l.nombre_paciente, 1 AS prioridad, 'crm_lead_id'::text AS metodo_match\n  FROM public.crm_leads l JOIN v ON v.crm_lead_id = l.id\n  WHERE l.company_key = 'especialidades-dentales'\n),\nactivos AS (\n  SELECT l.id AS lead_id, l.company_key, l.wa_id, l.nombre_paciente, 2 AS prioridad, 'estado_consulta'::text AS metodo_match\n  FROM public.crm_leads l\n  WHERE l.company_key = 'especialidades-dentales' AND l.estado_consulta = 'en_consulta'\n),\nobjetivo AS (\n  SELECT * FROM directo\n  UNION ALL SELECT * FROM activos\n  WHERE (SELECT count(*) FROM activos) = 1 AND NOT EXISTS (SELECT 1 FROM directo)\n  ORDER BY prioridad LIMIT 1\n),\nactualizado AS (\n  UPDATE public.crm_leads l\n  SET nombre_paciente = COALESCE(NULLIF(v.nombre_paciente, ''), l.nombre_paciente),\n      whatsapp_phone = COALESCE(NULLIF(v.telefono_paciente, ''), l.whatsapp_phone),\n      fecha_cita = COALESCE(v.fecha_valoracion, l.fecha_cita),\n      status_cita = 'asistio_valoracion', kanban_stage = 'asistio_valoracion',\n      stage_origin = 'admin', stage_locked = true,\n      ultimo_mensaje_cliente = COALESCE(NULLIF(v.texto_original, ''), NULLIF(v.transcripcion, ''), l.ultimo_mensaje_cliente),\n      raw_payload = COALESCE(l.raw_payload, '{}'::jsonb) || jsonb_build_object(\n        'motivo_consulta', v.motivo_consulta, 'diagnostico', v.diagnostico,\n        'tratamiento_propuesto', v.tratamiento_recomendado, 'notas_evolucion', v.observaciones,\n        'hallazgos', v.hallazgos, 'piezas_involucradas', v.piezas_involucradas,\n        'costo_cotizado', v.costo_cotizado, 'promocion_aplicada', v.promocion_aplicada,\n        'objeciones', v.objeciones, 'escalado_closer', v.escalado_closer,\n        'escalado_motivo', v.escalado_motivo, 'fecha_valoracion', v.fecha_valoracion,\n        'origen_valoracion', 'telegram'),\n      updated_at = now()\n  FROM v, objetivo o WHERE l.id = o.lead_id AND l.company_key = 'especialidades-dentales'\n  RETURNING l.id, l.company_key, l.wa_id, l.nombre_paciente\n),\nficha AS (\n  INSERT INTO public.ficha_clinica (lead_id, company_key, wa_id, motivo_consulta, diagnostico, tratamiento_propuesto, piezas_involucradas, notas_evolucion, updated_at)\n  SELECT a.id, a.company_key, a.wa_id, v.motivo_consulta, v.diagnostico, v.tratamiento_recomendado, v.piezas_involucradas, v.observaciones, now()\n  FROM actualizado a CROSS JOIN v\n  ON CONFLICT (lead_id) DO UPDATE SET\n    wa_id = COALESCE(public.ficha_clinica.wa_id, EXCLUDED.wa_id),\n    motivo_consulta = COALESCE(EXCLUDED.motivo_consulta, public.ficha_clinica.motivo_consulta),\n    diagnostico = COALESCE(EXCLUDED.diagnostico, public.ficha_clinica.diagnostico),\n    tratamiento_propuesto = COALESCE(EXCLUDED.tratamiento_propuesto, public.ficha_clinica.tratamiento_propuesto),\n    piezas_involucradas = COALESCE(EXCLUDED.piezas_involucradas, public.ficha_clinica.piezas_involucradas),\n    notas_evolucion = COALESCE(EXCLUDED.notas_evolucion, public.ficha_clinica.notas_evolucion), updated_at = now()\n  RETURNING id\n),\ncaso AS (\n  INSERT INTO public.caso_comercial (lead_id, company_key, wa_id, costo_cotizado, promocion_aplicada, objeciones, estado, escalado_closer, escalado_motivo, updated_at)\n  SELECT a.id, a.company_key, a.wa_id, v.costo_cotizado, v.promocion_aplicada, v.objeciones,\n    CASE WHEN v.escalado_closer OR COALESCE(v.costo_cotizado, 0) > 45000 THEN 'escalado_closer' ELSE 'valorado' END,\n    v.escalado_closer, v.escalado_motivo, now()\n  FROM actualizado a CROSS JOIN v\n  ON CONFLICT (lead_id) DO UPDATE SET\n    wa_id = COALESCE(public.caso_comercial.wa_id, EXCLUDED.wa_id),\n    costo_cotizado = COALESCE(EXCLUDED.costo_cotizado, public.caso_comercial.costo_cotizado),\n    promocion_aplicada = COALESCE(EXCLUDED.promocion_aplicada, public.caso_comercial.promocion_aplicada),\n    objeciones = COALESCE(EXCLUDED.objeciones, public.caso_comercial.objeciones), estado = EXCLUDED.estado,\n    escalado_closer = EXCLUDED.escalado_closer, escalado_motivo = COALESCE(EXCLUDED.escalado_motivo, public.caso_comercial.escalado_motivo), updated_at = now()\n  RETURNING id, lead_id\n),\ntraza AS (\n  INSERT INTO public.caso_trazabilidad (caso_comercial_id, lead_id, company_key, wa_id, timestamp, tipo_evento, responsable, metadata)\n  SELECT c.id, a.id, a.company_key, a.wa_id, now(), 'valoracion_registrada', 'doctor'::public.crm_responsable_evento,\n    jsonb_build_object('valoracion_id', v.id, 'origen', 'telegram', 'texto_original', v.texto_original, 'transcripcion', v.transcripcion)\n  FROM caso c JOIN actualizado a ON a.id = c.lead_id CROSS JOIN v RETURNING id\n),\ncerrada AS (\n  SELECT r.* FROM actualizado a CROSS JOIN LATERAL public.finalizar_consulta_por_lead(a.id) r\n),\nmarcada AS (\n  UPDATE public.valoraciones_pacientes vp SET estado_vinculacion = 'vinculada', crm_lead_id = (SELECT id FROM actualizado LIMIT 1), updated_at = now()\n  WHERE vp.id = (SELECT id FROM v) RETURNING vp.id\n)\nSELECT EXISTS (SELECT 1 FROM actualizado) AS crm_sync_ok,\n  (SELECT id FROM v) AS valoracion_id, (SELECT telegram_chat_id FROM v) AS telegram_chat_id,\n  (SELECT id FROM actualizado) AS lead_id, (SELECT metodo_match FROM objetivo) AS metodo_match,\n  COALESCE((SELECT nombre_paciente FROM actualizado), (SELECT nombre_paciente FROM v), '') AS nombre_paciente,\n  COALESCE((SELECT telefono_paciente FROM v), '') AS telefono_paciente,\n  CASE WHEN (SELECT escalado_closer FROM v) OR COALESCE((SELECT costo_cotizado FROM v), 0) > 45000 THEN 'escalado_closer' ELSE 'valorado' END AS estado_comercial,\n  (SELECT costo_cotizado FROM v) AS costo_cotizado,\n  EXISTS (SELECT 1 FROM cerrada WHERE finalized_id IS NOT NULL) AS consulta_cerrada,\n  (SELECT called_next_id FROM cerrada LIMIT 1) AS siguiente_lead_id,\n  COALESCE((SELECT l.nombre_paciente FROM public.crm_leads l JOIN cerrada c ON c.called_next_id = l.id LIMIT 1), '') AS siguiente_nombre,\n  'vinculada'::text AS estado_vinculacion;\n",
+        "options": {
+          "queryReplacement": "={{ [ $json.valoracion_id ] }}"
+        }
+      },
+      "id": "aec1687a-b358-49b7-8d1c-3ca2155dba0f",
+      "name": "PostgreSQL - Sincronizar CRM4",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        896,
+        5712
+      ],
+      "notesInFlow": true,
+      "credentials": {
+        "postgres": {
+          "id": "w9bHZ08UyzUUO0oK",
+          "name": "Postgres account 3"
+        }
+      },
+      "notes": "Sincroniza el informe usando primero crm_lead_id de la sesión; al cerrar finaliza exactamente ese paciente y avanza atómicamente al siguiente en espera."
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "b7f8f3f8-b6b6-4c4d-b1aa-6f8f0be4e2c7",
+                    "leftValue": "={{ String($json.crm_sync_ok) }}",
+                    "rightValue": "true",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "VINCULADA"
+            }
+          ]
+        },
+        "looseTypeValidation": true,
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "60cb252d-aaa2-43d1-9cbd-a27659d81f82",
+      "name": "¿Valoración vinculada?4",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.3,
+      "position": [
+        1120,
+        5712
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.telegram_chat_id }}",
+        "text": "={{ (() => {\n  const costo = $json.costo_cotizado === null || $json.costo_cotizado === undefined\n    ? 'No indicado'\n    : '$' + Number($json.costo_cotizado).toLocaleString('es-MX');\n  const cierre = $json.consulta_cerrada\n    ? '\\nConsulta: cerrada'\n    : '\\nConsulta: el informe se guardó, pero el paciente ya no estaba EN CONSULTA';\n  const siguiente = $json.siguiente_nombre\n    ? '\\nSiguiente paciente: ' + $json.siguiente_nombre\n    : '\\nSiguiente paciente: no hay nadie en espera';\n  return '✅ Informe guardado y sincronizado al CRM\\n\\n' +\n    'Paciente: ' + ($json.nombre_paciente || 'Sin nombre') +\n    '\\nLead ID: ' + ($json.lead_id || 'No encontrado') +\n    '\\nValoración ID: ' + $json.valoracion_id +\n    '\\nEstado comercial: ' + ($json.estado_comercial || 'valorado') +\n    '\\nCosto cotizado: ' + costo +\n    '\\nVinculación: ' + ($json.metodo_match || 'desconocida') +\n    cierre +\n    siguiente;\n})() }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "d01e3351-8d70-4a7b-95a9-ac068060fbc2",
+      "name": "Telegram - Confirmar Vinculada4",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1344,
+        5616
+      ],
+      "notesInFlow": true,
+      "webhookId": "206e8b41-c020-414d-944b-e85d93f2df41",
+      "credentials": {
+        "telegramApi": {
+          "id": "gC58E3PqueyJuc6O",
+          "name": "ESP_DENTALES"
+        }
+      },
+      "notes": "Confirma informe guardado, cierre de consulta y paciente siguiente."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.telegram_chat_id }}",
+        "text": "={{ '⚠️ El informe fue guardado, pero no se pudo sincronizar correctamente con el CRM.\\n\\nPaciente: ' + ($json.nombre_paciente || 'Sin nombre') + '\\nLead esperado: ' + ($json.lead_id || 'No encontrado') + '\\nValoración ID: ' + $json.valoracion_id + '\\n\\nRevisa crm_lead_id del informe y que la página tenga un único paciente con estado_consulta=en_consulta al iniciar el reporte.' }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "7785b9f8-3890-4ae3-b527-a0b6501f6ee7",
+      "name": "Telegram - Avisar Pendiente4",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1344,
+        5808
+      ],
+      "notesInFlow": true,
+      "webhookId": "8d40cd77-e9ee-46b7-a01c-8e39bdbfd9e9",
+      "credentials": {
+        "telegramApi": {
+          "id": "gC58E3PqueyJuc6O",
+          "name": "ESP_DENTALES"
+        }
+      },
+      "notes": "Selecciona la misma credencial del bot."
+    }
+  ],
+  "connections": {
+    "¿Cerrar, Corregir o Continuar?": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL - Reclamar Borrador3",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PostgreSQL - Descartar Borrador3",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram - Continuar Informe",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Paciente en consulta identificado?": {
+      "main": [
+        [
+          {
+            "node": "¿Cerrar informe después de guardar datos?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram - Error Paciente en Consulta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL - Cerrar Informe por Texto": {
+      "main": [
+        [
+          {
+            "node": "¿Hay informe abierto?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Hay informe abierto?": {
+      "main": [
+        [
+          {
+            "node": "Preparar Valoración Confirmada3",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram - Sin Informe Abierto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Audio solo dice cerrar informe?": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL - Cerrar Informe por Texto",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Agente - Extraer Valoración4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Cerrar informe después de guardar datos?": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL - Reclamar Borrador3",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram - Enviar Resumen para Confirmar3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Trigger4": {
+      "main": [
+        [
+          {
+            "node": "Clasificar Actualización Telegram3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clasificar Actualización Telegram3": {
+      "main": [
+        [
+          {
+            "node": "¿Mensaje o Callback?3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Mensaje o Callback?3": {
+      "main": [
+        [
+          {
+            "node": "Normalizar Telegram4",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Procesar Callback Confirmación3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar Telegram4": {
+      "main": [
+        [
+          {
+            "node": "Switch Texto o Audio4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch Texto o Audio4": {
+      "main": [
+        [
+          {
+            "node": "Preparar Texto4",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram - Obtener Audio4",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PostgreSQL - Cerrar Informe por Texto",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram - Tipo no soportado4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Texto4": {
+      "main": [
+        [
+          {
+            "node": "Agente - Extraer Valoración4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram - Obtener Audio4": {
+      "main": [
+        [
+          {
+            "node": "OpenAI - Transcribir Audio4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI - Transcribir Audio4": {
+      "main": [
+        [
+          {
+            "node": "Preparar Transcripción4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Transcripción4": {
+      "main": [
+        [
+          {
+            "node": "¿Audio solo dice cerrar informe?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agente - Extraer Valoración4": {
+      "main": [
+        [
+          {
+            "node": "Validar Extracción4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI - Modelo Extractor4": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Agente - Extraer Valoración4",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar Extracción4": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL - Guardar Borrador3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL - Guardar Borrador3": {
+      "main": [
+        [
+          {
+            "node": "¿Paciente en consulta identificado?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Procesar Callback Confirmación3": {
+      "main": [
+        [
+          {
+            "node": "¿Cerrar, Corregir o Continuar?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Telegram - Responder Callback3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL - Reclamar Borrador3": {
+      "main": [
+        [
+          {
+            "node": "Preparar Valoración Confirmada3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Valoración Confirmada3": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL - Guardar Valoración4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL - Descartar Borrador3": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Solicitar Corrección3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL - Guardar Valoración4": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL - Sincronizar CRM4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL - Sincronizar CRM4": {
+      "main": [
+        [
+          {
+            "node": "¿Valoración vinculada?4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Valoración vinculada?4": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Confirmar Vinculada4",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram - Avisar Pendiente4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "211e2c14e90323b3e38e0a830e3a51168e3db8e2f58e0eecc0ae0650a3bdb773"
+  }
+}
