@@ -24,7 +24,7 @@ import {
   isGoogleCalendarConfigured,
   listCalendarAppointments,
 } from './services/googleCalendar'
-import { ensureWaClienteEstado, getWaClienteEstadoByUsuarioId, listWaClientesEstado } from './services/waClientesEstado'
+import { ensureWaClienteEstado, getWaClienteEstadoByUsuarioId, linkWaClienteEstadoToCrmLead, listWaClientesEstado } from './services/waClientesEstado'
 
 interface SelectedPatientState {
   leadId: string
@@ -109,6 +109,21 @@ export default function App() {
 
     try {
       let knownUsers = waState
+      const usersToLink = knownUsers.filter((user) => !user.crmLeadId && canonicalMxPhoneKey(user.whatsappPhone))
+      if (usersToLink.length > 0) {
+        const linkResults = await Promise.allSettled(
+          usersToLink.map((user) => linkWaClienteEstadoToCrmLead(user.usuarioId)),
+        )
+        const linkedUsers = linkResults
+          .filter((result): result is PromiseFulfilledResult<WaClienteEstado | null> => result.status === 'fulfilled')
+          .map((result) => result.value)
+          .filter((value): value is WaClienteEstado => Boolean(value?.crmLeadId))
+
+        if (linkedUsers.length > 0) {
+          knownUsers = mergeWaClientes(knownUsers, linkedUsers)
+          setWaClientes(knownUsers)
+        }
+      }
       let items = await listCalendarAppointments(leads, knownUsers)
       const missingByPhone = new Map<string, CalendarAppointment>()
 

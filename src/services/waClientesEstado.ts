@@ -68,3 +68,17 @@ export async function ensureWaClienteEstado(params: {
   const firstRow = Array.isArray(data) ? data[0] : null
   return firstRow ? mapWaClienteEstado(firstRow as RawRow) : null
 }
+
+/** Vincula un usuario de WhatsApp con un lead existente por teléfono canónico. */
+export async function linkWaClienteEstadoToCrmLead(usuarioId: string): Promise<WaClienteEstado | null> {
+  if (!usuarioId) return null
+
+  const client = requireSupabase()
+  const { data, error } = await client.rpc('link_wa_cliente_calendar_lead', {
+    p_usuario_id: usuarioId,
+  })
+
+  if (error) throw error
+  const firstRow = Array.isArray(data) ? data[0] : data
+  return firstRow ? mapWaClienteEstado(firstRow as RawRow) : null
+}
