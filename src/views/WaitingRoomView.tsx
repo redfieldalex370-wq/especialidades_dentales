@@ -427,19 +427,13 @@ export function WaitingRoomView({
                   </div>
                   <div className="patient-browser-actions">
                     {appointment.matchedLeadId ? (
-                      <>
-                        <button className="secondary-button" onClick={() => onOpenLead(appointment.matchedLeadId)}>Ficha</button>
-                        <button
-                          className="primary-button"
-                          onClick={() => {
-                            const matchedLead = findLeadById(leads, appointment.matchedLeadId)
-                            if (matchedLead) void handleArrival(matchedLead, 'con_cita')
-                          }}
-                          disabled={busyLeadId === appointment.matchedLeadId}
-                        >
-                          {busyLeadId === appointment.matchedLeadId ? 'Guardando...' : 'Ya llegó'}
-                        </button>
-                      </>
+                      renderAppointmentActions({
+                        appointment,
+                        leads,
+                        busyLeadId,
+                        onOpenLead,
+                        onArrival: (lead) => void handleArrival(lead, 'con_cita'),
+                      })
                     ) : (
                       <button className="secondary-button" disabled>Sin ficha</button>
                     )}
@@ -589,6 +583,47 @@ function comparePreferred(left: CrmLead, right: CrmLead): number {
   const rightScore = right.appointmentConfirmed ? 0 : 1
   if (leftScore !== rightScore) return leftScore - rightScore
   return compareWaitingOrder(left, right)
+}
+
+function renderAppointmentActions({
+  appointment,
+  leads,
+  busyLeadId,
+  onOpenLead,
+  onArrival,
+}: {
+  appointment: CalendarAppointment
+  leads: CrmLead[]
+  busyLeadId: string
+  onOpenLead: (leadId: string) => void
+  onArrival: (lead: CrmLead) => void
+}) {
+  const matchedLead = findLeadById(leads, appointment.matchedLeadId)
+  if (!matchedLead) return <button className="secondary-button" disabled>Sin ficha</button>
+
+  if (matchedLead.kioskStatus === 'pendiente') {
+    return (
+      <>
+        <button className="secondary-button" onClick={() => onOpenLead(appointment.matchedLeadId)}>Ficha</button>
+        <button
+          className="primary-button"
+          onClick={() => onArrival(matchedLead)}
+          disabled={busyLeadId === appointment.matchedLeadId}
+        >
+          {busyLeadId === appointment.matchedLeadId ? 'Guardando...' : 'Ya llegó'}
+        </button>
+      </>
+    )
+  }
+
+  return (
+    <>
+      <button className="secondary-button" onClick={() => onOpenLead(appointment.matchedLeadId)}>Ficha</button>
+      <button className="secondary-button" disabled>
+        {labelForAppointmentState(matchedLead.kioskStatus)}
+      </button>
+    </>
+  )
 }
 
 function isActiveCalendarAppointment(status: string): boolean {
