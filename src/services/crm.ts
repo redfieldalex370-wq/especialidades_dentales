@@ -726,46 +726,44 @@ async function getLeadById(leadId: string, companyKey: CrmCompanyKey): Promise<C
   return data ? mapDentalLead(data as RawLead) : null
 }
 
-export async function ensureCasoComercialForLead(lead: Pick<CrmLead, 'id' | 'waId' | 'companyKey'>): Promise<string> {
-  if (!lead.waId) {
-    throw new Error('No pudimos registrar trazabilidad porque el lead no tiene wa_id.')
-  }
-
+export async function ensureCasoComercialForLead(
+  lead: Pick<CrmLead, 'id' | 'waId' | 'companyKey'>,
+): Promise<string> {
   const client = requireSupabase()
   const companyKey = resolveCompanyKey(lead.companyKey)
-
   const { data: leadRow, error: leadError } = await client
     .from(CRM_TABLES.leads)
-    .select('id')
+    .select('id, wa_id, company_key')
+    .eq('id', lead.id)
     .eq('company_key', companyKey)
-    .eq('wa_id', lead.waId)
     .maybeSingle()
-
   if (leadError) throw leadError
   if (!leadRow) {
-    throw new Error('No encontramos el lead de esta clínica para registrar trazabilidad.')
+    throw new Error(
+      'No encontramos el lead de esta clínica para registrar trazabilidad.',
+    )
   }
-
   const { data: existingCase, error: existingError } = await client
     .from(CRM_TABLES.commercialCases)
-    .select('caso_comercial_id')
-    .eq('wa_id', lead.waId)
+    .select('id')
+    .eq('lead_id', leadRow.id)
     .maybeSingle()
-
   if (existingError) throw existingError
-  if (existingCase?.caso_comercial_id) return String(existingCase.caso_comercial_id)
-
+  if (existingCase?.id) {
+    return String(existingCase.id)
+  }
   const { data: createdCase, error: createError } = await client
     .from(CRM_TABLES.commercialCases)
     .insert({
-      wa_id: lead.waId,
+      lead_id: leadRow.id,
+      company_key: companyKey,
+      wa_id: leadRow.wa_id ?? lead.waId ?? null,
       estado: 'valorado',
     })
-    .select('caso_comercial_id')
+    .select('id')
     .single()
-
   if (createError) throw createError
-  return String(createdCase.caso_comercial_id)
+  return String(createdCase.id)
 }
 
 export async function logTraceabilityEvent(params: {
