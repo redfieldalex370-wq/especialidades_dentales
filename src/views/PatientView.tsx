@@ -11,7 +11,7 @@ interface Props {
   onSaveDetail: (leadId: string, input: DentalLeadDetailUpdate) => Promise<void>
   onUpdateKioskStatus: (leadId: string, kioskStatus: KioskLeadStatus, kioskFlow?: KioskFlow) => Promise<void>
   onCallNextPatient: (mode: 'automatico' | 'manual') => Promise<CrmLead | null>
-  onFinalizeCurrentConsultation: (mode: 'automatico' | 'manual' | 'telegram') => Promise<{ finalizedLead: CrmLead | null; calledNextLead: CrmLead | null }>
+  onFinalizeConsultationByLead: (leadId: string, mode: 'manual' | 'telegram') => Promise<{ finalizedLead: CrmLead | null; calledNextLead: CrmLead | null }>
 }
 
 export function PatientView({
@@ -24,7 +24,7 @@ export function PatientView({
   onSaveDetail,
   onUpdateKioskStatus,
   onCallNextPatient,
-  onFinalizeCurrentConsultation,
+  onFinalizeConsultationByLead,
 }: Props) {
   const [nameSearch, setNameSearch] = useState('')
   const [phoneSearch, setPhoneSearch] = useState('')
@@ -129,13 +129,13 @@ export function PatientView({
 
     try {
       if (activeLead.kioskStatus === 'en_consulta') {
-        const result = await onFinalizeCurrentConsultation('manual')
+        const result = await onFinalizeConsultationByLead(activeLead.id, 'manual')
         if (result.calledNextLead) {
-          setSaveMessage(`Atención finalizada. Siguiente paciente: ${result.calledNextLead.name}.`)
+          setSaveMessage(`Cierre manual aplicado. Siguiente paciente: ${result.calledNextLead.name}.`)
         } else if (result.finalizedLead) {
-          setSaveMessage('Atención finalizada. No hay más pacientes esperando.')
+          setSaveMessage('Cierre manual aplicado. No hay más pacientes esperando.')
         } else {
-          setSaveMessage('No había una consulta activa que finalizar.')
+          setSaveMessage('Este paciente ya no estaba en consulta. La ficha se actualizó con Supabase.')
         }
         return
       }
@@ -214,10 +214,10 @@ export function PatientView({
             {kioskBusy ? 'Guardando...' : 'Marcar llegada'}
           </button>
           <button className="secondary-button" onClick={() => void handleAdvanceOperationalFlow()} disabled={kioskBusy}>
-            {lead.kioskStatus === 'en_consulta' ? 'Finalizar y llamar siguiente' : 'Llamar siguiente'}
+            {lead.kioskStatus === 'en_consulta' ? 'Finalizar atención (respaldo manual)' : 'Llamar siguiente'}
           </button>
           <button className="primary-button" onClick={() => void handleAdvanceOperationalFlow()} disabled={kioskBusy || lead.kioskStatus !== 'en_consulta'}>
-            Finalizar atencion
+            Cierre manual de respaldo
           </button>
         </div>
       </section>

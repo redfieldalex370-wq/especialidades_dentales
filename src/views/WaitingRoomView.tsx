@@ -11,7 +11,7 @@ interface Props {
   onRegisterWalkIn: (name: string, phone: string) => Promise<CrmLead>
   onUpdateLeadStatus: (leadId: string, kioskStatus: KioskLeadStatus, kioskFlow?: KioskFlow) => Promise<void>
   onCallNextPatient: (mode: 'automatico' | 'manual') => Promise<CrmLead | null>
-  onFinalizeCurrentConsultation: (mode: 'automatico' | 'manual' | 'telegram') => Promise<{ finalizedLead: CrmLead | null; calledNextLead: CrmLead | null }>
+  onFinalizeConsultationByLead: (leadId: string, mode: 'manual' | 'telegram') => Promise<{ finalizedLead: CrmLead | null; calledNextLead: CrmLead | null }>
 }
 
 export function WaitingRoomView({
@@ -24,7 +24,7 @@ export function WaitingRoomView({
   onRegisterWalkIn,
   onUpdateLeadStatus,
   onCallNextPatient,
-  onFinalizeCurrentConsultation,
+  onFinalizeConsultationByLead,
 }: Props) {
   const [mode, setMode] = useState<KioskFlow>('con_cita')
   const [nameSearch, setNameSearch] = useState('')
@@ -133,39 +133,11 @@ export function WaitingRoomView({
     }
   }
 
-  async function handleStatusChange(leadId: string, status: KioskLeadStatus) {
-    setBusyLeadId(leadId)
-    setActionMessage('')
-
-    try {
-      await onUpdateLeadStatus(leadId, status)
-      setActionMessage('Estado actualizado en Supabase.')
-    } catch (error) {
-      setActionMessage(error instanceof Error ? error.message : 'No se pudo actualizar el estado.')
-    } finally {
-      setBusyLeadId('')
-    }
-  }
-
   async function handleAdvanceQueue() {
     setActionMessage('')
 
     if (currentPatient) {
-      setBusyLeadId(currentPatient.id)
-      try {
-        const result = await onFinalizeCurrentConsultation('manual')
-        if (result.calledNextLead) {
-          setActionMessage(`Terminó ${currentPatient.name} y entró ${result.calledNextLead.name}.`)
-        } else if (result.finalizedLead) {
-          setActionMessage(`Terminó ${currentPatient.name}. No hay más pacientes esperando.`)
-        } else {
-          setActionMessage('No había una consulta activa para finalizar.')
-        }
-      } catch (error) {
-        setActionMessage(error instanceof Error ? error.message : 'No se pudo avanzar la cola.')
-      } finally {
-        setBusyLeadId('')
-      }
+      setActionMessage('Ya hay un paciente en consulta. El cierre normal lo hace n8n cuando el doctor confirma el informe.')
       return
     }
 
@@ -180,6 +152,31 @@ export function WaitingRoomView({
       setActionMessage(selected ? `Se llamó a ${selected.name}.` : 'No había un turno disponible para pasar en este momento.')
     } catch (error) {
       setActionMessage(error instanceof Error ? error.message : 'No se pudo llamar al siguiente paciente.')
+    } finally {
+      setBusyLeadId('')
+    }
+  }
+
+  async function handleManualFinalizeCurrent() {
+    if (!currentPatient) {
+      setActionMessage('No hay una consulta activa para cerrar manualmente.')
+      return
+    }
+
+    setBusyLeadId(currentPatient.id)
+    setActionMessage('')
+
+    try {
+      const result = await onFinalizeConsultationByLead(currentPatient.id, 'manual')
+      if (result.calledNextLead) {
+        setActionMessage(`Cierre manual aplicado. Terminó ${currentPatient.name} y entró ${result.calledNextLead.name}.`)
+      } else if (result.finalizedLead) {
+        setActionMessage(`Cierre manual aplicado. Terminó ${currentPatient.name}. No hay más pacientes esperando.`)
+      } else {
+        setActionMessage('Ese paciente ya no estaba en consulta. La vista se actualizó con Supabase.')
+      }
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : 'No se pudo cerrar manualmente la atención.')
     } finally {
       setBusyLeadId('')
     }
@@ -265,15 +262,16 @@ export function WaitingRoomView({
                   Llegó {currentPatient.arrivalAt ? formatTime(currentPatient.arrivalAt) : 'sin hora'} ·{' '}
                   {currentPatient.appointmentDate ? `cita ${formatTime(currentPatient.appointmentDate)}` : 'sin cita calendar'}
                 </small>
+                <small>El cierre normal ocurre cuando n8n cierra el informe del doctor.</small>
               </div>
               <div className="patient-browser-actions">
                 <button className="secondary-button" onClick={() => onOpenLead(currentPatient.id)}>Ficha</button>
                 <button
-                  className="primary-button"
-                  onClick={() => void handleAdvanceQueue()}
+                  className="secondary-button"
+                  onClick={() => void handleManualFinalizeCurrent()}
                   disabled={busyLeadId === currentPatient.id}
                 >
-                  {busyLeadId === currentPatient.id ? 'Cerrando...' : 'Finalizar y llamar siguiente'}
+                  {busyLeadId === currentPatient.id ? 'Cerrando...' : 'Finalizar atención (respaldo manual)'}
                 </button>
               </div>
             </article>
@@ -440,9 +438,6 @@ export function WaitingRoomView({
                   </div>
                 <div className="patient-browser-actions">
                   <button className="secondary-button" onClick={() => onOpenLead(lead.id)}>Ficha</button>
-                  <button className="primary-button" onClick={() => void handleStatusChange(lead.id, 'en_espera')} disabled={busyLeadId === lead.id}>
-                    Poner en espera
-                  </button>
                 </div>
                 </article>
               ))

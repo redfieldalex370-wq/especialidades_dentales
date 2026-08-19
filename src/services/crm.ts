@@ -600,6 +600,53 @@ export async function finalizeCurrentConsultation(params: {
   }
 }
 
+export async function finalizeConsultationByLead(params: {
+  leadId: string
+  companyKey?: CrmCompanyKey
+  mode: 'manual' | 'telegram'
+}): Promise<{
+  finalizedLead: CrmLead | null
+  calledNextLead: CrmLead | null
+}> {
+  const client = requireSupabase()
+  const companyKey = params.companyKey ?? DEFAULT_CRM_COMPANY_KEY
+  const { data, error } = await client.rpc('finalizar_consulta_por_lead', {
+    p_lead_id: params.leadId,
+  })
+
+  if (error) throw error
+
+  const row = Array.isArray(data) ? data[0] : null
+  const finalizedId = stringValue(row?.finalized_id)
+  const finalizedWaId = stringValue(row?.finalized_wa_id)
+  const calledNextId = stringValue(row?.called_next_id)
+  const calledNextWaId = stringValue(row?.called_next_wa_id)
+
+  const finalizedLead = finalizedId ? await getLeadById(finalizedId, companyKey) : null
+  const calledNextLead = calledNextId ? await getLeadById(calledNextId, companyKey) : null
+
+  if (finalizedLead ?? finalizedWaId) {
+    await logTraceabilityEvent({
+      lead: finalizedLead ?? { id: finalizedId, waId: finalizedWaId, companyKey },
+      tipoEvento: 'consulta finalizada',
+      responsable: 'sistema',
+    })
+  }
+
+  if (calledNextLead ?? calledNextWaId) {
+    await logTraceabilityEvent({
+      lead: calledNextLead ?? { id: calledNextId, waId: calledNextWaId, companyKey },
+      tipoEvento: params.mode === 'manual' ? 'llamado manual' : 'llamado automatico',
+      responsable: 'sistema',
+    })
+  }
+
+  return {
+    finalizedLead,
+    calledNextLead,
+  }
+}
+
 export async function createDentalWalkInLead(params: {
   companyKey?: CrmCompanyKey
   name: string

@@ -13,35 +13,29 @@ set search_path = public
 as $$
 declare
   current_lead public.crm_leads%rowtype;
-  next_lead public.crm_leads%rowtype;
 begin
-  with actual as (
-    select id
-    from public.crm_leads
-    where company_key = p_company_key
-      and estado_consulta = 'en_consulta'
-    order by consulta_inicio_at asc nulls first, llegada_kiosko_at asc nulls first
-    for update skip locked
-    limit 1
-  )
-  update public.crm_leads as lead
-  set
-    estado_consulta = 'finalizada',
-    consulta_fin_at = coalesce(lead.consulta_fin_at, now())
-  from actual
-  where lead.id = actual.id
-  returning lead.* into current_lead;
-
-  select * into next_lead
-  from public.llamar_siguiente_paciente(p_company_key)
+  select *
+  into current_lead
+  from public.crm_leads
+  where company_key = p_company_key
+    and estado_consulta = 'en_consulta'
+  order by consulta_inicio_at asc nulls first, llegada_kiosko_at asc nulls first
+  for update skip locked
   limit 1;
 
+  if not found then
+    return query
+    select
+      null::uuid,
+      null::text,
+      null::uuid,
+      null::text;
+    return;
+  end if;
+
   return query
-  select
-    current_lead.id,
-    current_lead.wa_id,
-    next_lead.id,
-    next_lead.wa_id;
+  select *
+  from public.finalizar_consulta_por_lead(current_lead.id);
 end;
 $$;
 

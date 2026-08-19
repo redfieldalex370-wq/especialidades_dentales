@@ -10,7 +10,7 @@ import {
   callNextWaitingPatient,
   createDentalWalkInLead,
   DENTAL_PIPELINE_FALLBACK,
-  finalizeCurrentConsultation,
+  finalizeConsultationByLead,
   getDentalPipelineStages,
   listDentalCrmLeads,
   updateDentalLeadKioskState,
@@ -149,18 +149,6 @@ export default function App() {
             if (firstKey) processedRealtimeEventRef.current.delete(firstKey)
           }
 
-          const nextState = String(nextRow.estado_consulta ?? '')
-          const previousState = String(previousRow.estado_consulta ?? '')
-          const shouldAutoCall =
-            payload.eventType === 'UPDATE' &&
-            nextState === 'finalizada' &&
-            previousState !== 'finalizada' &&
-            String(nextRow.company_key ?? '') === companyKey
-
-          if (shouldAutoCall) {
-            void handleCallNextPatient('automatico')
-          }
-
           void loadCrm()
           if (selectedLeadIdRef.current) {
             void loadLeadDetail(selectedLeadIdRef.current)
@@ -287,8 +275,9 @@ export default function App() {
     return selected
   }
 
-  async function handleFinalizeCurrentConsultation(mode: 'automatico' | 'manual' | 'telegram') {
-    const result = await finalizeCurrentConsultation({
+  async function handleFinalizeConsultationByLead(leadId: string, mode: 'manual' | 'telegram') {
+    const result = await finalizeConsultationByLead({
+      leadId,
       companyKey,
       mode,
     })
@@ -382,7 +371,7 @@ export default function App() {
               onRegisterWalkIn={handleRegisterWalkIn}
               onUpdateLeadStatus={handleUpdateKioskStatus}
               onCallNextPatient={handleCallNextPatient}
-              onFinalizeCurrentConsultation={handleFinalizeCurrentConsultation}
+              onFinalizeConsultationByLead={handleFinalizeConsultationByLead}
             />
           )}
           {view === 'patient' && (
@@ -396,7 +385,7 @@ export default function App() {
               onSaveDetail={handleSaveLeadDetail}
               onUpdateKioskStatus={handleUpdateKioskStatus}
               onCallNextPatient={handleCallNextPatient}
-              onFinalizeCurrentConsultation={handleFinalizeCurrentConsultation}
+              onFinalizeConsultationByLead={handleFinalizeConsultationByLead}
             />
           )}
           {view === 'automation' && <AutomationView leads={crmLeads} onOpenLead={openLead} />}
