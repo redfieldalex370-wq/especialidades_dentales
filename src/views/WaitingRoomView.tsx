@@ -8,7 +8,12 @@ interface Props {
   loading: boolean
   onRefresh: () => void
   onOpenLead: (leadId: string) => void
-  onRegisterWalkIn: (name: string, phone: string) => Promise<CrmLead>
+  onRegisterWalkIn: (
+    name: string,
+    phone: string,
+    appointmentType?: 'valoracion' | 'limpieza',
+    appointmentStart?: string,
+  ) => Promise<CrmLead>
   onUpdateLeadStatus: (leadId: string, kioskStatus: KioskLeadStatus, kioskFlow?: KioskFlow) => Promise<void>
   onCallNextPatient: (mode: 'automatico' | 'manual') => Promise<CrmLead | null>
   onFinalizeConsultationByLead: (leadId: string, mode: 'manual' | 'telegram') => Promise<{ finalizedLead: CrmLead | null; calledNextLead: CrmLead | null }>
@@ -31,6 +36,8 @@ export function WaitingRoomView({
   const [phoneSearch, setPhoneSearch] = useState('')
   const [walkInName, setWalkInName] = useState('')
   const [walkInPhone, setWalkInPhone] = useState('')
+  const [walkInAppointmentType, setWalkInAppointmentType] = useState<'valoracion' | 'limpieza'>('valoracion')
+  const [walkInAppointmentStart, setWalkInAppointmentStart] = useState('')
   const [actionMessage, setActionMessage] = useState('')
   const [busyLeadId, setBusyLeadId] = useState('')
   const [submittingWalkIn, setSubmittingWalkIn] = useState(false)
@@ -193,10 +200,21 @@ export function WaitingRoomView({
     setActionMessage('')
 
     try {
-      const lead = await onRegisterWalkIn(walkInName.trim(), walkInPhone.trim())
-      setActionMessage(`Paciente registrado en espera: ${lead.name}.`)
+      const lead = await onRegisterWalkIn(
+        walkInName.trim(),
+        walkInPhone.trim(),
+        walkInAppointmentStart ? walkInAppointmentType : undefined,
+        walkInAppointmentStart ? toIsoDateTime(walkInAppointmentStart) : undefined,
+      )
+      setActionMessage(
+        walkInAppointmentStart
+          ? `Paciente registrado en espera y cita enviada a Calendar: ${lead.name}.`
+          : `Paciente registrado en espera: ${lead.name}.`,
+      )
       setWalkInName('')
       setWalkInPhone('')
+      setWalkInAppointmentStart('')
+      setWalkInAppointmentType('valoracion')
       onOpenLead(lead.id)
     } catch (error) {
       setActionMessage(error instanceof Error ? error.message : 'No se pudo registrar el paciente sin cita.')
@@ -357,8 +375,24 @@ export function WaitingRoomView({
               <span>Telefono</span>
               <input className="field-input" value={walkInPhone} onChange={(event) => setWalkInPhone(event.target.value)} />
             </label>
+            <label className="field-row field-row-editable">
+              <span>Tipo de cita</span>
+              <select className="field-input" value={walkInAppointmentType} onChange={(event) => setWalkInAppointmentType(event.target.value as 'valoracion' | 'limpieza')}>
+                <option value="valoracion">Valoración</option>
+                <option value="limpieza">Limpieza</option>
+              </select>
+            </label>
+            <label className="field-row field-row-editable">
+              <span>Horario</span>
+              <input
+                className="field-input"
+                type="datetime-local"
+                value={walkInAppointmentStart}
+                onChange={(event) => setWalkInAppointmentStart(event.target.value)}
+              />
+            </label>
             <button className="primary-button" type="submit" disabled={submittingWalkIn}>
-              {submittingWalkIn ? 'Registrando...' : 'Registrar en espera'}
+              {submittingWalkIn ? 'Registrando...' : walkInAppointmentStart ? 'Registrar y agendar' : 'Registrar en espera'}
             </button>
           </form>
         )}
@@ -519,6 +553,11 @@ function formatTime(value: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return 'Sin hora'
   return date.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
+}
+
+function toIsoDateTime(value: string): string {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : date.toISOString()
 }
 
 function compareByArrival(left: CrmLead, right: CrmLead): number {

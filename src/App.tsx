@@ -13,12 +13,14 @@ import {
   finalizeConsultationByLead,
   getDentalPipelineStages,
   listDentalCrmLeads,
+  syncDentalLeadAppointment,
   updateDentalLeadKioskState,
   updateDentalLeadStage,
 } from './services/crm'
 import { canonicalMxPhoneKey } from './lib/phone'
 import { getDentalLeadDetail, updateDentalLeadDetail } from './services/fichas'
 import {
+  createCalendarAppointment,
   isGoogleCalendarConfigured,
   listCalendarAppointments,
 } from './services/googleCalendar'
@@ -291,28 +293,74 @@ export default function App() {
     return result
   }
 
-  async function handleRegisterWalkIn(name: string, phone: string) {
+  async function handleRegisterWalkIn(
+    name: string,
+    phone: string,
+    appointmentType?: 'valoracion' | 'limpieza',
+    appointmentStart?: string,
+  ) {
     const phoneKey = canonicalMxPhoneKey(phone)
     const existing = crmLeads.find((item) => {
       return [item.phone, item.waId, item.subscriberId].some((value) => canonicalMxPhoneKey(value) === phoneKey)
     })
 
     if (existing) {
-      const saved = await updateDentalLeadKioskState({
+      let saved = await updateDentalLeadKioskState({
         lead: existing,
         companyKey,
         kioskStatus: 'en_espera',
         kioskFlow: 'sin_cita',
       })
+
+      if (appointmentType && appointmentStart && isGoogleCalendarConfigured) {
+        const end = addMinutesToIso(appointmentStart, 30)
+        const calendarEvent = await createCalendarAppointment({
+          lead: saved,
+          start: appointmentStart,
+          end,
+          appointmentType,
+          notes: buildCalendarNotes(saved),
+        })
+
+        saved = await syncDentalLeadAppointment({
+          lead: saved,
+          appointmentDate: calendarEvent.start,
+          appointmentStatus: 'CITA_CONFIRMADA',
+          appointmentType: appointmentType === 'limpieza' ? 'Limpieza dental' : 'Valoración dental',
+          calendarEventId: calendarEvent.id,
+          notes: calendarEvent.description,
+        })
+      }
+
       setCrmLeads((current) => current.map((item) => (item.id === existing.id ? saved : item)))
       return saved
     }
 
-    const created = await createDentalWalkInLead({
+    let created = await createDentalWalkInLead({
       companyKey,
       name,
       phone,
     })
+
+    if (appointmentType && appointmentStart && isGoogleCalendarConfigured) {
+      const end = addMinutesToIso(appointmentStart, 30)
+      const calendarEvent = await createCalendarAppointment({
+        lead: created,
+        start: appointmentStart,
+        end,
+        appointmentType,
+        notes: buildCalendarNotes(created),
+      })
+
+      created = await syncDentalLeadAppointment({
+        lead: created,
+        appointmentDate: calendarEvent.start,
+        appointmentStatus: 'CITA_CONFIRMADA',
+        appointmentType: appointmentType === 'limpieza' ? 'Limpieza dental' : 'Valoración dental',
+        calendarEventId: calendarEvent.id,
+        notes: calendarEvent.description,
+      })
+    }
 
     setCrmLeads((current) => [created, ...current])
     return created
@@ -393,4 +441,21 @@ export default function App() {
       </main>
     </div>
   )
+}
+
+function addMinutesToIso(value: string, minutes: number) {
+  const date = new Date(value)
+  date.setMinutes(date.getMinutes() + minutes)
+  return date.toISOString()
+}
+
+function buildCalendarNotes(lead: CrmLead) {
+  return [
+    `Teléfono: ${lead.phone || lead.waId || ''}`,
+    `wa_id: ${lead.waId || ''}`,
+    `subscriber_id: ${lead.subscriberId || ''}`,
+    `lead_id: ${lead.id}`,
+  ]
+    .filter(Boolean)
+    .join('\n')
 }
