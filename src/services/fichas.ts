@@ -89,7 +89,7 @@ function mapFichaClinica(row: RawRow | null): FichaClinica | null {
   if (!row) return null
 
   return {
-    fichaClinicaId: stringValue(row.ficha_clinica_id),
+    fichaClinicaId: stringValue(row.id),
     waId: stringValue(row.wa_id),
     motivoConsulta: stringValue(row.motivo_consulta),
     diagnostico: stringValue(row.diagnostico),
@@ -106,7 +106,7 @@ function mapCasoComercial(row: RawRow | null): CasoComercial | null {
   if (!row) return null
 
   return {
-    casoComercialId: stringValue(row.caso_comercial_id),
+    casoComercialId: stringValue(row.id),
     waId: stringValue(row.wa_id),
     costoCotizado: numberValue(row.costo_cotizado),
     promocionAplicada: stringValue(row.promocion_aplicada),
@@ -123,7 +123,7 @@ function mapCasoComercial(row: RawRow | null): CasoComercial | null {
 
 function mapTrazabilidad(row: RawRow): TrazabilidadEvento {
   return {
-    eventoId: stringValue(row.evento_id),
+    eventoId: stringValue(row.id),
     casoComercialId: stringValue(row.caso_comercial_id),
     timestamp: stringValue(row.timestamp),
     tipoEvento: stringValue(row.tipo_evento),
@@ -146,12 +146,12 @@ async function assertLeadForCompany(waId: string) {
 }
 
 export async function getFichaClinica(waId: string): Promise<FichaClinica | null> {
-  await assertLeadForCompany(waId)
+  const leadRow = await assertLeadForCompany(waId)
   const client = requireSupabase()
   const { data, error } = await client
     .from(TABLES.fichaClinica)
     .select('*')
-    .eq('wa_id', waId)
+    .eq('lead_id', String(leadRow.id))
     .maybeSingle()
 
   if (error) throw error
@@ -159,9 +159,11 @@ export async function getFichaClinica(waId: string): Promise<FichaClinica | null
 }
 
 export async function upsertFichaClinica(waId: string, input: DentalLeadDetailUpdate['fichaClinica']): Promise<FichaClinica> {
-  await assertLeadForCompany(waId)
+  const leadRow = await assertLeadForCompany(waId)
   const client = requireSupabase()
   const payload = {
+    lead_id: leadRow.id,
+    company_key: String(leadRow.company_key),
     wa_id: waId,
     motivo_consulta: input.motivoConsulta || null,
     diagnostico: input.diagnostico || null,
@@ -174,7 +176,7 @@ export async function upsertFichaClinica(waId: string, input: DentalLeadDetailUp
 
   const { data, error } = await client
     .from(TABLES.fichaClinica)
-    .upsert(payload, { onConflict: 'wa_id' })
+    .upsert(payload, { onConflict: 'lead_id' })
     .select('*')
     .single()
 
@@ -183,12 +185,12 @@ export async function upsertFichaClinica(waId: string, input: DentalLeadDetailUp
 }
 
 export async function getCasoComercial(waId: string): Promise<CasoComercial | null> {
-  await assertLeadForCompany(waId)
+  const leadRow = await assertLeadForCompany(waId)
   const client = requireSupabase()
   const { data, error } = await client
     .from(TABLES.casoComercial)
     .select('*')
-    .eq('wa_id', waId)
+    .eq('lead_id', String(leadRow.id))
     .maybeSingle()
 
   if (error) throw error
@@ -196,9 +198,11 @@ export async function getCasoComercial(waId: string): Promise<CasoComercial | nu
 }
 
 export async function upsertCasoComercial(waId: string, input: DentalLeadDetailUpdate['casoComercial']): Promise<CasoComercial> {
-  await assertLeadForCompany(waId)
+  const leadRow = await assertLeadForCompany(waId)
   const client = requireSupabase()
   const payload = {
+    lead_id: leadRow.id,
+    company_key: String(leadRow.company_key),
     wa_id: waId,
     costo_cotizado: input.costoCotizado,
     promocion_aplicada: input.promocionAplicada || null,
@@ -213,7 +217,7 @@ export async function upsertCasoComercial(waId: string, input: DentalLeadDetailU
 
   const { data, error } = await client
     .from(TABLES.casoComercial)
-    .upsert(payload, { onConflict: 'wa_id' })
+    .upsert(payload, { onConflict: 'lead_id' })
     .select('*')
     .single()
 
@@ -225,7 +229,7 @@ export async function listEventos(casoComercialId: string): Promise<Trazabilidad
   const client = requireSupabase()
   const { data, error } = await client
     .from(TABLES.trazabilidad)
-    .select('evento_id, caso_comercial_id, timestamp, tipo_evento, responsable')
+    .select('id, caso_comercial_id, timestamp, tipo_evento, responsable')
     .eq('caso_comercial_id', casoComercialId)
     .order('timestamp', { ascending: false })
 
@@ -239,14 +243,25 @@ export async function addEvento(params: {
   responsable: TrazabilidadResponsable
 }): Promise<TrazabilidadEvento> {
   const client = requireSupabase()
+  const { data: commercialCase, error: commercialCaseError } = await client
+    .from(TABLES.casoComercial)
+    .select('id, lead_id, company_key, wa_id')
+    .eq('id', params.casoComercialId)
+    .single()
+
+  if (commercialCaseError) throw commercialCaseError
+
   const { data, error } = await client
     .from(TABLES.trazabilidad)
     .insert({
       caso_comercial_id: params.casoComercialId,
+      lead_id: commercialCase.lead_id,
+      company_key: commercialCase.company_key,
+      wa_id: commercialCase.wa_id,
       tipo_evento: params.tipoEvento,
       responsable: params.responsable,
     })
-    .select('evento_id, caso_comercial_id, timestamp, tipo_evento, responsable')
+    .select('id, caso_comercial_id, timestamp, tipo_evento, responsable')
     .single()
 
   if (error) throw error
