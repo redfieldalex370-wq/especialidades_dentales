@@ -101,10 +101,10 @@ export function DashboardView({
             {upcomingAppointments.length > 0 ? (
               upcomingAppointments.map((appointment) => (
                 <button
-                  className={`appointment-card appointment-card-match-${appointment.matchedLeadId ? 'yes' : 'no'}`}
+                  className={`appointment-card appointment-card-match-${appointment.matchedUsuarioId ? 'yes' : 'no'}`}
                   key={appointment.id}
                   onClick={() => {
-                    if (appointment.matchedLeadId) onOpenLead(appointment.matchedLeadId)
+                    if (appointment.matchedUsuarioId) onOpenLead(appointment.matchedUsuarioId)
                   }}
                 >
                   <div>

@@ -1,14 +1,15 @@
 import { useDeferredValue, useEffect, useMemo, useState } from 'react'
-import type { CasoComercialEstado, ClinicalRecord, CommercialCase, CrmLead, CrmLeadDetail, DentalLeadDetailUpdate, KioskFlow, KioskLeadStatus, TraceabilityEvent } from '../types'
+import type { CasoComercialEstado, ClinicalRecord, CommercialCase, CrmLead, CrmLeadDetail, DentalLeadDetailUpdate, KioskFlow, KioskLeadStatus, TraceabilityEvent, WaClienteEstado } from '../types'
 
 interface Props {
   lead: CrmLead | null
+  waClient: WaClienteEstado | null
   leads: CrmLead[]
   detail: CrmLeadDetail | null
   detailLoading: boolean
   detailError: string
   onOpenLead: (leadId: string) => void
-  onSaveDetail: (leadId: string, input: DentalLeadDetailUpdate) => Promise<void>
+  onSaveDetail: (input: DentalLeadDetailUpdate) => Promise<void>
   onUpdateKioskStatus: (leadId: string, kioskStatus: KioskLeadStatus, kioskFlow?: KioskFlow) => Promise<void>
   onCallNextPatient: (mode: 'automatico' | 'manual') => Promise<CrmLead | null>
   onFinalizeConsultationByLead: (leadId: string, mode: 'manual' | 'telegram') => Promise<{ finalizedLead: CrmLead | null; calledNextLead: CrmLead | null }>
@@ -16,6 +17,7 @@ interface Props {
 
 export function PatientView({
   lead,
+  waClient,
   leads,
   detail,
   detailLoading,
@@ -58,9 +60,9 @@ export function PatientView({
     setSaveMessage('')
     setSaveError('')
     setEditing(false)
-  }, [lead?.id, detail?.fichaClinica?.updatedAt, detail?.casoComercial?.updatedAt])
+  }, [lead?.id, waClient?.usuarioId, detail?.fichaClinica?.updatedAt, detail?.casoComercial?.updatedAt])
 
-  if (!lead) {
+  if (!lead && !waClient) {
     return (
       <div className="view-stack">
         <PatientPicker
@@ -76,13 +78,16 @@ export function PatientView({
   }
 
   const activeLead = lead
+  const canUseCommercialCase = Boolean(activeLead?.id)
   const clinical = detail?.fichaClinica ?? null
   const commercial = detail?.casoComercial ?? null
   const events = buildEvents(detail?.trazabilidad ?? [])
+  const displayName = activeLead?.name || waClient?.nombrePaciente || 'Paciente'
+  const displayPhone = activeLead?.phone || activeLead?.waId || waClient?.whatsappPhone || 'Sin teléfono'
 
   async function handleSave() {
     setSaveError('')
-    if (draft.casoComercial.estado === 'abono_recibido' && (!draft.casoComercial.montoCerrado || draft.casoComercial.montoCerrado <= 0)) {
+    if (canUseCommercialCase && draft.casoComercial.estado === 'abono_recibido' && (!draft.casoComercial.montoCerrado || draft.casoComercial.montoCerrado <= 0)) {
       setSaveError('Si el estado es abono_recibido, captura un monto cerrado mayor a 0.')
       return
     }
@@ -91,7 +96,7 @@ export function PatientView({
     setSaveMessage('')
 
     try {
-      await onSaveDetail(activeLead.id, {
+      await onSaveDetail({
         fichaClinica: {
           ...draft.fichaClinica,
         },
@@ -110,6 +115,7 @@ export function PatientView({
   }
 
   async function handleKioskAction(status: KioskLeadStatus, flow?: KioskFlow) {
+    if (!activeLead) return
     setKioskBusy(true)
     setSaveMessage('')
 
@@ -124,6 +130,7 @@ export function PatientView({
   }
 
   async function handleAdvanceOperationalFlow() {
+    if (!activeLead) return
     setKioskBusy(true)
     setSaveMessage('')
 
@@ -154,7 +161,7 @@ export function PatientView({
       <div className="section-head standalone">
         <div>
           <span className="eyebrow">Ficha comercial</span>
-          <h1>{activeLead.name}</h1>
+          <h1>{displayName}</h1>
         </div>
         <div className="patient-actions">
           {editing ? (
@@ -191,36 +198,44 @@ export function PatientView({
         </section>
       )}
 
-      <section className="panel operational-panel">
-        <div className="section-head compact">
-          <div>
-            <span className="eyebrow">Operacion</span>
-            <h2>Control del kiosko</h2>
+      {activeLead ? (
+        <section className="panel operational-panel">
+          <div className="section-head compact">
+            <div>
+              <span className="eyebrow">Operacion</span>
+              <h2>Control del kiosko</h2>
+            </div>
+            <span className="soft-pill">{labelForKioskStatus(activeLead.kioskStatus)}</span>
           </div>
-          <span className="soft-pill">{labelForKioskStatus(lead.kioskStatus)}</span>
-        </div>
 
-        <div className="field-grid">
-          <Field label="Flujo" value={lead.kioskFlow === 'sin_cita' ? 'Sin cita' : 'Con cita'} />
-          <Field label="Llegada" value={lead.arrivalAt ? formatDateTime(lead.arrivalAt) : 'Sin llegada registrada'} />
-          <Field label="Inicio consulta" value={lead.consultaInicioAt ? formatDateTime(lead.consultaInicioAt) : 'Sin inicio registrado'} />
-          <Field label="Fin consulta" value={lead.consultaFinAt ? formatDateTime(lead.consultaFinAt) : 'Sin cierre registrado'} />
-          <Field label="Cita activa" value={lead.appointmentDate ? formatDateTime(lead.appointmentDate) : 'Sin cita'} />
-          <Field label="Estado de sala" value={labelForKioskStatus(lead.kioskStatus)} />
-        </div>
+          <div className="field-grid">
+            <Field label="Flujo" value={activeLead.kioskFlow === 'sin_cita' ? 'Sin cita' : 'Con cita'} />
+            <Field label="Llegada" value={activeLead.arrivalAt ? formatDateTime(activeLead.arrivalAt) : 'Sin llegada registrada'} />
+            <Field label="Inicio consulta" value={activeLead.consultaInicioAt ? formatDateTime(activeLead.consultaInicioAt) : 'Sin inicio registrado'} />
+            <Field label="Fin consulta" value={activeLead.consultaFinAt ? formatDateTime(activeLead.consultaFinAt) : 'Sin cierre registrado'} />
+            <Field label="Cita activa" value={activeLead.appointmentDate ? formatDateTime(activeLead.appointmentDate) : 'Sin cita'} />
+            <Field label="Estado de sala" value={labelForKioskStatus(activeLead.kioskStatus)} />
+          </div>
 
-        <div className="patient-actions operational-actions">
-          <button className="secondary-button" onClick={() => void handleKioskAction('en_espera', lead.appointmentDate ? 'con_cita' : 'sin_cita')} disabled={kioskBusy}>
-            {kioskBusy ? 'Guardando...' : 'Marcar llegada'}
-          </button>
-          <button className="secondary-button" onClick={() => void handleAdvanceOperationalFlow()} disabled={kioskBusy}>
-            {lead.kioskStatus === 'en_consulta' ? 'Finalizar atención (respaldo manual)' : 'Llamar siguiente'}
-          </button>
-          <button className="primary-button" onClick={() => void handleAdvanceOperationalFlow()} disabled={kioskBusy || lead.kioskStatus !== 'en_consulta'}>
-            Cierre manual de respaldo
-          </button>
-        </div>
-      </section>
+          <div className="patient-actions operational-actions">
+            <button className="secondary-button" onClick={() => void handleKioskAction('en_espera', activeLead.appointmentDate ? 'con_cita' : 'sin_cita')} disabled={kioskBusy}>
+              {kioskBusy ? 'Guardando...' : 'Marcar llegada'}
+            </button>
+            <button className="secondary-button" onClick={() => void handleAdvanceOperationalFlow()} disabled={kioskBusy}>
+              {activeLead.kioskStatus === 'en_consulta' ? 'Finalizar atención (respaldo manual)' : 'Llamar siguiente'}
+            </button>
+            <button className="primary-button" onClick={() => void handleAdvanceOperationalFlow()} disabled={kioskBusy || activeLead.kioskStatus !== 'en_consulta'}>
+              Cierre manual de respaldo
+            </button>
+          </div>
+        </section>
+      ) : (
+        <section className="panel warning-panel">
+          <span className="eyebrow">Operación</span>
+          <h2>Ficha clínica sin oportunidad comercial</h2>
+          <p>Este paciente existe en Calendar y en wa_clientes_estado, pero todavía no tiene lead comercial en crm_leads.</p>
+        </section>
+      )}
 
       <section className="record-grid">
         <article className="panel record-card">
@@ -247,32 +262,42 @@ export function PatientView({
               <h2>Oportunidad</h2>
             </div>
           </div>
-          <div className="money-box">
-            <span>Costo cotizado</span>
-            <strong>{editing ? 'Editable abajo' : commercial?.costoCotizado ? money(commercial.costoCotizado) : lead.quotedAmount ? money(lead.quotedAmount) : 'Pendiente'}</strong>
-          </div>
-          <EditableField label="Costo cotizado" editing={editing} type="number" value={draft.casoComercial.costoCotizado === null ? '' : String(draft.casoComercial.costoCotizado)} displayValue={commercial?.costoCotizado ? money(commercial.costoCotizado) : lead.quotedAmount ? money(lead.quotedAmount) : 'Pendiente'} onChange={(value) => setDraft((current) => ({ ...current, casoComercial: { ...current.casoComercial, costoCotizado: value ? Number(value) : null } }))} />
-          <EditableField label="Promocion aplicada" editing={editing} value={draft.casoComercial.promocionAplicada} displayValue={commercialText(commercial, 'promocionAplicada') || 'No mencionado'} onChange={(value) => setDraft((current) => ({ ...current, casoComercial: { ...current.casoComercial, promocionAplicada: value } }))} />
-          <EditableField label="Objeciones" editing={editing} type="textarea" value={draft.casoComercial.objeciones} displayValue={commercialText(commercial, 'objeciones') || 'No mencionado'} onChange={(value) => setDraft((current) => ({ ...current, casoComercial: { ...current.casoComercial, objeciones: value } }))} />
-          <EditableField label="Indicacion seguimiento" editing={editing} type="textarea" value={draft.casoComercial.indicacionSeguimiento} displayValue={commercialText(commercial, 'indicacionSeguimiento') || 'No mencionado'} onChange={(value) => setDraft((current) => ({ ...current, casoComercial: { ...current.casoComercial, indicacionSeguimiento: value } }))} />
-          <EditableField label="Proxima cita sugerida" editing={editing} type="datetime-local" value={draft.casoComercial.proximaCitaSugerida} displayValue={commercial?.proximaCitaSugerida ? formatDateTime(commercial.proximaCitaSugerida) : lead.appointmentDate ? formatDateTime(lead.appointmentDate) : 'Pendiente'} onChange={(value) => setDraft((current) => ({ ...current, casoComercial: { ...current.casoComercial, proximaCitaSugerida: value } }))} />
-          <EditableSelectField label="Estado comercial" editing={editing} value={draft.casoComercial.estado} displayValue={labelForEstado(draft.casoComercial.estado)} options={ESTADO_OPTIONS} onChange={(value) => setDraft((current) => ({ ...current, casoComercial: { ...current.casoComercial, estado: value as CasoComercialEstado } }))} />
-          {(draft.casoComercial.costoCotizado ?? 0) > 45000 && draft.casoComercial.estado !== 'escalado_closer' && (
-            <div className="status-strip">
-              <span>Advertencia</span>
-              <strong>Sugerencia: escalar a closer por monto mayor a $45,000</strong>
-            </div>
-          )}
-          {draft.casoComercial.estado === 'abono_recibido' && (
+          {canUseCommercialCase ? (
             <>
-              <EditableField label="Monto cerrado" editing={editing} type="number" value={draft.casoComercial.montoCerrado === null ? '' : String(draft.casoComercial.montoCerrado)} displayValue={commercial?.montoCerrado ? money(commercial.montoCerrado) : 'Sin abono'} onChange={(value) => setDraft((current) => ({ ...current, casoComercial: { ...current.casoComercial, montoCerrado: value ? Number(value) : null } }))} />
-              <EditableSelectField label="Cerrado por" editing={editing} value={draft.casoComercial.cerradoPor || ''} displayValue={labelForCerradoPor(draft.casoComercial.cerradoPor || '')} options={CERRADO_POR_OPTIONS} onChange={(value) => setDraft((current) => ({ ...current, casoComercial: { ...current.casoComercial, cerradoPor: value as DentalLeadDetailUpdate['casoComercial']['cerradoPor'] } }))} />
+              <div className="money-box">
+                <span>Costo cotizado</span>
+                <strong>{editing ? 'Editable abajo' : commercial?.costoCotizado ? money(commercial.costoCotizado) : activeLead?.quotedAmount ? money(activeLead.quotedAmount) : 'Pendiente'}</strong>
+              </div>
+              <EditableField label="Costo cotizado" editing={editing} type="number" value={draft.casoComercial.costoCotizado === null ? '' : String(draft.casoComercial.costoCotizado)} displayValue={commercial?.costoCotizado ? money(commercial.costoCotizado) : activeLead?.quotedAmount ? money(activeLead.quotedAmount) : 'Pendiente'} onChange={(value) => setDraft((current) => ({ ...current, casoComercial: { ...current.casoComercial, costoCotizado: value ? Number(value) : null } }))} />
+              <EditableField label="Promocion aplicada" editing={editing} value={draft.casoComercial.promocionAplicada} displayValue={commercialText(commercial, 'promocionAplicada') || 'No mencionado'} onChange={(value) => setDraft((current) => ({ ...current, casoComercial: { ...current.casoComercial, promocionAplicada: value } }))} />
+              <EditableField label="Objeciones" editing={editing} type="textarea" value={draft.casoComercial.objeciones} displayValue={commercialText(commercial, 'objeciones') || 'No mencionado'} onChange={(value) => setDraft((current) => ({ ...current, casoComercial: { ...current.casoComercial, objeciones: value } }))} />
+              <EditableField label="Indicacion seguimiento" editing={editing} type="textarea" value={draft.casoComercial.indicacionSeguimiento} displayValue={commercialText(commercial, 'indicacionSeguimiento') || 'No mencionado'} onChange={(value) => setDraft((current) => ({ ...current, casoComercial: { ...current.casoComercial, indicacionSeguimiento: value } }))} />
+              <EditableField label="Proxima cita sugerida" editing={editing} type="datetime-local" value={draft.casoComercial.proximaCitaSugerida} displayValue={commercial?.proximaCitaSugerida ? formatDateTime(commercial.proximaCitaSugerida) : activeLead?.appointmentDate ? formatDateTime(activeLead.appointmentDate) : 'Pendiente'} onChange={(value) => setDraft((current) => ({ ...current, casoComercial: { ...current.casoComercial, proximaCitaSugerida: value } }))} />
+              <EditableSelectField label="Estado comercial" editing={editing} value={draft.casoComercial.estado} displayValue={labelForEstado(draft.casoComercial.estado)} options={ESTADO_OPTIONS} onChange={(value) => setDraft((current) => ({ ...current, casoComercial: { ...current.casoComercial, estado: value as CasoComercialEstado } }))} />
+              {(draft.casoComercial.costoCotizado ?? 0) > 45000 && draft.casoComercial.estado !== 'escalado_closer' && (
+                <div className="status-strip">
+                  <span>Advertencia</span>
+                  <strong>Sugerencia: escalar a closer por monto mayor a $45,000</strong>
+                </div>
+              )}
+              {draft.casoComercial.estado === 'abono_recibido' && (
+                <>
+                  <EditableField label="Monto cerrado" editing={editing} type="number" value={draft.casoComercial.montoCerrado === null ? '' : String(draft.casoComercial.montoCerrado)} displayValue={commercial?.montoCerrado ? money(commercial.montoCerrado) : 'Sin abono'} onChange={(value) => setDraft((current) => ({ ...current, casoComercial: { ...current.casoComercial, montoCerrado: value ? Number(value) : null } }))} />
+                  <EditableSelectField label="Cerrado por" editing={editing} value={draft.casoComercial.cerradoPor || ''} displayValue={labelForCerradoPor(draft.casoComercial.cerradoPor || '')} options={CERRADO_POR_OPTIONS} onChange={(value) => setDraft((current) => ({ ...current, casoComercial: { ...current.casoComercial, cerradoPor: value as DentalLeadDetailUpdate['casoComercial']['cerradoPor'] } }))} />
+                </>
+              )}
             </>
+          ) : (
+            <div className="empty-state empty-state-compact">
+              <h3>Sin oportunidad comercial</h3>
+              <p>Este paciente todavía no tiene crm_lead_id, así que la ficha comercial no aplica por ahora.</p>
+            </div>
           )}
         </article>
       </section>
 
-      <section className="crm-dashboard-grid">
+      {activeLead ? (
+        <section className="crm-dashboard-grid">
         <article className="panel">
           <div className="section-head compact">
             <div>
@@ -304,7 +329,24 @@ export function PatientView({
           </div>
         </article>
       </section>
+      ) : (
+        <section className="panel">
+          <div className="section-head compact">
+            <div>
+              <span className="eyebrow">Paciente</span>
+              <h2>Datos básicos</h2>
+            </div>
+          </div>
+          <div className="field-grid">
+            <Field label="Nombre" value={displayName} />
+            <Field label="Teléfono" value={displayPhone} />
+            <Field label="Usuario" value={waClient?.usuarioId || detail?.usuarioId || 'Sin usuario'} />
+            <Field label="Vinculación CRM" value="Sin oportunidad comercial" />
+          </div>
+        </section>
+      )}
 
+      {canUseCommercialCase && (
       <section className="panel">
         <div className="section-head compact">
           <div>
@@ -324,6 +366,7 @@ export function PatientView({
           ))}
         </div>
       </section>
+      )}
     </div>
   )
 }

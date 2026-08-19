@@ -135,6 +135,9 @@ export interface TrazabilidadEvento {
 }
 
 export interface CrmLeadDetail {
+  usuarioId?: string
+  crmLeadId?: string
+  waId?: string
   fichaClinica: FichaClinica | null
   casoComercial: CasoComercial | null
   trazabilidad: TrazabilidadEvento[]
@@ -177,9 +180,19 @@ export interface CalendarAppointment {
   status: string
   location: string
   patientName: string
+  patientPhone: string
+  matchedUsuarioId: string
   matchedLeadId: string
   matchMethod: 'crm_lead_id' | 'subscriber_id' | 'wa_id' | 'phone' | 'name' | 'none'
   source: 'google_calendar'
+}
+
+export interface WaClienteEstado {
+  usuarioId: string
+  whatsappPhone: string
+  subscriberId: string
+  nombrePaciente: string
+  crmLeadId: string
 }
 
 export type EstadoVinculacionValoracion =

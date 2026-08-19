@@ -1,4 +1,4 @@
-import type { CalendarAppointment, CrmLead } from '../types'
+import type { CalendarAppointment, CrmLead, WaClienteEstado } from '../types'
 import { canonicalMxPhoneKey, phonesMatchMx } from '../lib/phone'
 
 const apiKey = import.meta.env.VITE_GOOGLE_API_KEY?.trim()
@@ -64,11 +64,17 @@ interface CalendarIdentifiers {
 }
 
 type MatchResult = {
+  usuario: WaClienteEstado | null
   lead: CrmLead | null
   matchMethod: CalendarAppointment['matchMethod']
+  patientPhone: string
 }
 
-export async function listCalendarAppointments(leads: CrmLead[], options?: { daysAhead?: number }): Promise<CalendarAppointment[]> {
+export async function listCalendarAppointments(
+  leads: CrmLead[],
+  usuarios: WaClienteEstado[],
+  options?: { daysAhead?: number },
+): Promise<CalendarAppointment[]> {
   if (!isGoogleCalendarConfigured) return []
 
   const now = new Date()
@@ -96,11 +102,11 @@ export async function listCalendarAppointments(leads: CrmLead[], options?: { day
 
   const payload = (await response.json()) as GoogleCalendarResponse
   return (payload.items ?? [])
-    .map((item) => mapCalendarEvent(item, leads))
+    .map((item) => mapCalendarEvent(item, leads, usuarios))
     .filter((item): item is CalendarAppointment => Boolean(item))
 }
 
-function mapCalendarEvent(item: GoogleCalendarEvent, leads: CrmLead[]): CalendarAppointment | null {
+function mapCalendarEvent(item: GoogleCalendarEvent, leads: CrmLead[], usuarios: WaClienteEstado[]): CalendarAppointment | null {
   const start = item.start?.dateTime ?? item.start?.date
   const end = item.end?.dateTime ?? item.end?.date ?? start
   const title = item.summary?.trim() ?? 'Cita'
@@ -113,6 +119,7 @@ function mapCalendarEvent(item: GoogleCalendarEvent, leads: CrmLead[]): Calendar
     title,
     description: item.description?.trim() ?? '',
     leads,
+    usuarios,
   })
 
   return {
@@ -124,6 +131,8 @@ function mapCalendarEvent(item: GoogleCalendarEvent, leads: CrmLead[]): Calendar
     status: item.status?.trim() ?? 'confirmed',
     location: item.location?.trim() ?? '',
     patientName,
+    patientPhone: match.patientPhone,
+    matchedUsuarioId: match.usuario?.usuarioId ?? '',
     matchedLeadId: match.lead?.id ?? '',
     matchMethod: match.matchMethod,
     source: 'google_calendar',
@@ -157,7 +166,7 @@ export async function createCalendarAppointment(input: CalendarAppointmentInput)
   }
 
   const payload = (await response.json()) as GoogleCalendarEvent
-  return mapCalendarEvent(payload, [input.lead]) ?? fallbackCalendarAppointment(payload, input.lead)
+  return mapCalendarEvent(payload, [input.lead], []) ?? fallbackCalendarAppointment(payload, input.lead)
 }
 
 export async function updateCalendarAppointment(eventId: string, input: CalendarAppointmentInput): Promise<CalendarAppointment> {
@@ -183,7 +192,7 @@ export async function updateCalendarAppointment(eventId: string, input: Calendar
   }
 
   const payload = (await response.json()) as GoogleCalendarEvent
-  return mapCalendarEvent(payload, [input.lead]) ?? fallbackCalendarAppointment(payload, input.lead)
+  return mapCalendarEvent(payload, [input.lead], []) ?? fallbackCalendarAppointment(payload, input.lead)
 }
 
 export async function deleteCalendarAppointment(eventId: string): Promise<void> {
@@ -226,46 +235,99 @@ function findMatchingLead({
   title,
   description,
   leads,
+  usuarios,
 }: {
   patientName: string
   title: string
   description: string
   leads: CrmLead[]
+  usuarios: WaClienteEstado[]
 }): MatchResult {
   const identifiers = extractCalendarIdentifiers(description, title)
 
-  if (identifiers.crmLeadId) {
-    const matchedByLeadId = leads.find((lead) => normalizeIdentifier(lead.id) === identifiers.crmLeadId) ?? null
-    if (matchedByLeadId) return { lead: matchedByLeadId, matchMethod: 'crm_lead_id' }
-  }
-
-  if (identifiers.subscriberId) {
-    const matchedBySubscriber = leads.find((lead) => normalizeIdentifier(lead.subscriberId) === identifiers.subscriberId) ?? null
-    if (matchedBySubscriber) return { lead: matchedBySubscriber, matchMethod: 'subscriber_id' }
+  if (identifiers.phone) {
+    const matchedUsuarioByPhone = usuarios.find((usuario) =>
+      phonesMatchMx(usuario.whatsappPhone, identifiers.phone) ||
+      phonesMatchMx(usuario.subscriberId, identifiers.phone),
+    ) ?? null
+    if (matchedUsuarioByPhone) {
+      return {
+        usuario: matchedUsuarioByPhone,
+        lead: resolveLeadForUsuario(matchedUsuarioByPhone, leads),
+        matchMethod: 'phone',
+        patientPhone: identifiers.phone,
+      }
+    }
   }
 
   if (identifiers.waId) {
-    const matchedByWaId = leads.find((lead) => normalizeIdentifier(lead.waId) === identifiers.waId) ?? null
-    if (matchedByWaId) return { lead: matchedByWaId, matchMethod: 'wa_id' }
+    const matchedUsuarioByWaId = usuarios.find((usuario) =>
+      phonesMatchMx(usuario.whatsappPhone, identifiers.waId) ||
+      normalizeIdentifier(usuario.subscriberId) === identifiers.waId,
+    ) ?? null
+    if (matchedUsuarioByWaId) {
+      return {
+        usuario: matchedUsuarioByWaId,
+        lead: resolveLeadForUsuario(matchedUsuarioByWaId, leads),
+        matchMethod: 'wa_id',
+        patientPhone: identifiers.phone || canonicalMxPhoneKey(identifiers.waId),
+      }
+    }
   }
 
-  if (identifiers.phone) {
-    const matchedByPhone = leads.find((lead) =>
-      phonesMatchMx(lead.phone, identifiers.phone) ||
-      phonesMatchMx(lead.waId, identifiers.phone),
+  if (identifiers.subscriberId) {
+    const matchedUsuarioBySubscriber = usuarios.find((usuario) =>
+      normalizeIdentifier(usuario.subscriberId) === identifiers.subscriberId ||
+      canonicalMxPhoneKey(usuario.whatsappPhone) === canonicalMxPhoneKey(identifiers.subscriberId),
     ) ?? null
-    if (matchedByPhone) return { lead: matchedByPhone, matchMethod: 'phone' }
+    if (matchedUsuarioBySubscriber) {
+      return {
+        usuario: matchedUsuarioBySubscriber,
+        lead: resolveLeadForUsuario(matchedUsuarioBySubscriber, leads),
+        matchMethod: 'subscriber_id',
+        patientPhone: identifiers.phone || canonicalMxPhoneKey(matchedUsuarioBySubscriber.whatsappPhone),
+      }
+    }
+  }
+
+  if (identifiers.crmLeadId) {
+    const matchedByLeadId = leads.find((lead) => normalizeIdentifier(lead.id) === identifiers.crmLeadId) ?? null
+    if (matchedByLeadId) {
+      const usuario = usuarios.find((item) => item.crmLeadId === matchedByLeadId.id) ?? null
+      return {
+        usuario,
+        lead: matchedByLeadId,
+        matchMethod: 'crm_lead_id',
+        patientPhone: identifiers.phone || canonicalMxPhoneKey(matchedByLeadId.phone || matchedByLeadId.waId),
+      }
+    }
   }
 
   const target = normalizeText(patientName)
-  if (!target) return { lead: null, matchMethod: 'none' }
+  if (!target) return { usuario: null, lead: null, matchMethod: 'none', patientPhone: identifiers.phone }
+
+  const exactUserMatches = usuarios.filter((usuario) => normalizeText(usuario.nombrePaciente) === target)
+  if (exactUserMatches.length === 1) {
+    return {
+      usuario: exactUserMatches[0],
+      lead: resolveLeadForUsuario(exactUserMatches[0], leads),
+      matchMethod: 'name',
+      patientPhone: identifiers.phone || canonicalMxPhoneKey(exactUserMatches[0].whatsappPhone),
+    }
+  }
 
   const exactMatches = leads.filter((lead) => normalizeText(lead.name) === target)
   if (exactMatches.length === 1) {
-    return { lead: exactMatches[0], matchMethod: 'name' }
+    const usuario = usuarios.find((item) => item.crmLeadId === exactMatches[0].id) ?? null
+    return {
+      usuario,
+      lead: exactMatches[0],
+      matchMethod: 'name',
+      patientPhone: identifiers.phone || canonicalMxPhoneKey(exactMatches[0].phone || exactMatches[0].waId),
+    }
   }
 
-  return { lead: null, matchMethod: 'none' }
+  return { usuario: null, lead: null, matchMethod: 'none', patientPhone: identifiers.phone }
 }
 
 function extractCalendarIdentifiers(primaryText: string, fallbackText: string): CalendarIdentifiers {
@@ -339,10 +401,25 @@ function fallbackCalendarAppointment(item: GoogleCalendarEvent, lead: CrmLead): 
     status: item.status?.trim() ?? 'confirmed',
     location: item.location?.trim() ?? '',
     patientName: lead.name,
+    patientPhone: canonicalMxPhoneKey(lead.phone || lead.waId),
+    matchedUsuarioId: '',
     matchedLeadId: lead.id,
     matchMethod: 'crm_lead_id',
     source: 'google_calendar',
   }
+}
+
+function resolveLeadForUsuario(usuario: WaClienteEstado, leads: CrmLead[]): CrmLead | null {
+  if (usuario.crmLeadId) {
+    const byLeadId = leads.find((lead) => lead.id === usuario.crmLeadId) ?? null
+    if (byLeadId) return byLeadId
+  }
+
+  return leads.find((lead) =>
+    phonesMatchMx(lead.phone, usuario.whatsappPhone) ||
+    phonesMatchMx(lead.waId, usuario.whatsappPhone) ||
+    normalizeIdentifier(lead.subscriberId) === normalizeIdentifier(usuario.subscriberId),
+  ) ?? null
 }
 
 function buildAppointmentTitle(type: 'valoracion' | 'limpieza', patientName: string) {

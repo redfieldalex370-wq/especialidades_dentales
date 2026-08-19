@@ -4,7 +4,7 @@ import { AutomationView } from './views/AutomationView'
 import { DashboardView } from './views/DashboardView'
 import { PatientView } from './views/PatientView'
 import { WaitingRoomView } from './views/WaitingRoomView'
-import type { CalendarAppointment, CrmLead, CrmLeadDetail, CrmStage, DentalLeadDetailUpdate, KioskFlow, KioskLeadStatus } from './types'
+import type { CalendarAppointment, CrmLead, CrmLeadDetail, CrmStage, DentalLeadDetailUpdate, KioskFlow, KioskLeadStatus, WaClienteEstado } from './types'
 import { supabase } from './lib/supabase'
 import {
   callNextWaitingPatient,
@@ -24,13 +24,20 @@ import {
   isGoogleCalendarConfigured,
   listCalendarAppointments,
 } from './services/googleCalendar'
+import { ensureWaClienteEstado, getWaClienteEstadoByUsuarioId, listWaClientesEstado } from './services/waClientesEstado'
+
+interface SelectedPatientState {
+  leadId: string
+  usuarioId: string
+}
 
 export default function App() {
   const [view, setView] = useState<ViewKey>('dashboard')
   const companyKey = 'especialidades-dentales'
   const [crmLeads, setCrmLeads] = useState<CrmLead[]>([])
+  const [waClientes, setWaClientes] = useState<WaClienteEstado[]>([])
   const [crmStages, setCrmStages] = useState<CrmStage[]>(DENTAL_PIPELINE_FALLBACK)
-  const [selectedLeadId, setSelectedLeadId] = useState('')
+  const [selectedPatient, setSelectedPatient] = useState<SelectedPatientState | null>(null)
   const [crmLoading, setCrmLoading] = useState(true)
   const [crmError, setCrmError] = useState('')
   const [pipelineSource, setPipelineSource] = useState<'supabase' | 'fallback'>('fallback')
@@ -42,17 +49,20 @@ export default function App() {
   const [calendarAppointments, setCalendarAppointments] = useState<CalendarAppointment[]>([])
   const [calendarLoading, setCalendarLoading] = useState(false)
   const [calendarError, setCalendarError] = useState('')
-  const selectedLeadIdRef = useRef('')
+  const selectedPatientRef = useRef<SelectedPatientState | null>(null)
   const processedRealtimeEventRef = useRef<Set<string>>(new Set())
 
-  selectedLeadIdRef.current = selectedLeadId
+  selectedPatientRef.current = selectedPatient
 
-  async function loadLeadDetail(leadId: string) {
+  async function loadLeadDetail(patient: SelectedPatientState) {
     setLeadDetailLoading(true)
     setLeadDetailError('')
 
     try {
-      const detail = await getDentalLeadDetail(leadId, companyKey)
+      const detail = await getDentalLeadDetail({
+        leadId: patient.leadId || '',
+        usuarioId: patient.usuarioId || '',
+      }, companyKey)
       setLeadDetail(detail)
     } catch (error) {
       setLeadDetail(null)
@@ -60,6 +70,12 @@ export default function App() {
     } finally {
       setLeadDetailLoading(false)
     }
+  }
+
+  async function loadWaClientes() {
+    const users = await listWaClientesEstado()
+    setWaClientes(users)
+    return users
   }
 
   async function loadCrm() {
@@ -81,7 +97,7 @@ export default function App() {
     }
   }
 
-  async function loadCalendar(leads: CrmLead[]) {
+  async function loadCalendar(leads: CrmLead[], waState: WaClienteEstado[]) {
     if (!isGoogleCalendarConfigured) {
       setCalendarAppointments([])
       setCalendarError('Google Calendar no está configurado todavía.')
@@ -92,7 +108,24 @@ export default function App() {
     setCalendarError('')
 
     try {
-      const items = await listCalendarAppointments(leads)
+      let knownUsers = waState
+      let items = await listCalendarAppointments(leads, knownUsers)
+      const missingWithPhone = items.filter((item) => !item.matchedUsuarioId && canonicalMxPhoneKey(item.patientPhone))
+
+      if (missingWithPhone.length > 0) {
+        await Promise.all(
+          missingWithPhone.map((item) =>
+            ensureWaClienteEstado({
+              patientName: item.patientName || item.title,
+              phone: item.patientPhone,
+            }),
+          ),
+        )
+
+        knownUsers = await loadWaClientes()
+        items = await listCalendarAppointments(leads, knownUsers)
+      }
+
       setCalendarAppointments(items)
     } catch (error) {
       setCalendarAppointments([])
@@ -103,28 +136,31 @@ export default function App() {
   }
 
   useEffect(() => {
-    void loadCrm()
+    void (async () => {
+      await Promise.all([loadCrm(), loadWaClientes()])
+    })()
   }, [])
 
   useEffect(() => {
     if (crmLeads.length > 0) {
-      void loadCalendar(crmLeads)
+      void loadCalendar(crmLeads, waClientes)
     } else if (isGoogleCalendarConfigured) {
-      void loadCalendar([])
+      void loadCalendar([], waClientes)
     }
-  }, [crmLeads])
+  }, [crmLeads, waClientes])
 
   useEffect(() => {
     const timer = window.setInterval(() => {
       void loadCrm()
-      void loadCalendar(crmLeads)
-      if (selectedLeadId) {
-        void loadLeadDetail(selectedLeadId)
+      void loadWaClientes()
+      void loadCalendar(crmLeads, waClientes)
+      if (selectedPatient) {
+        void loadLeadDetail(selectedPatient)
       }
     }, 30_000)
 
     return () => window.clearInterval(timer)
-  }, [selectedLeadId, crmLeads])
+  }, [selectedPatient, crmLeads, waClientes])
 
   useEffect(() => {
     if (!supabase) return
@@ -152,8 +188,9 @@ export default function App() {
           }
 
           void loadCrm()
-          if (selectedLeadIdRef.current) {
-            void loadLeadDetail(selectedLeadIdRef.current)
+          void loadWaClientes()
+          if (selectedPatientRef.current) {
+            void loadLeadDetail(selectedPatientRef.current)
           }
         },
       )
@@ -164,17 +201,24 @@ export default function App() {
     }
   }, [companyKey])
 
-  const selectedLead = useMemo(
-    () => crmLeads.find((lead) => lead.id === selectedLeadId) ?? null,
-    [crmLeads, selectedLeadId],
-  )
+  const selectedLead = useMemo(() => {
+    if (!selectedPatient?.leadId) return null
+    return crmLeads.find((lead) => lead.id === selectedPatient.leadId) ?? null
+  }, [crmLeads, selectedPatient])
+
+  const selectedWaCliente = useMemo(() => {
+    if (!selectedPatient?.usuarioId) return null
+    return waClientes.find((item) => item.usuarioId === selectedPatient.usuarioId) ?? null
+  }, [selectedPatient, waClientes])
 
   useEffect(() => {
-    if (!selectedLeadId) {
+    if (!selectedPatient) {
       setLeadDetail(null)
       setLeadDetailError('')
       return
     }
+
+    const currentSelectedPatient = selectedPatient
 
     let cancelled = false
 
@@ -183,7 +227,10 @@ export default function App() {
       setLeadDetailError('')
 
       try {
-        const detail = await getDentalLeadDetail(selectedLeadId, companyKey)
+        const detail = await getDentalLeadDetail({
+          leadId: currentSelectedPatient.leadId || '',
+          usuarioId: currentSelectedPatient.usuarioId || '',
+        }, companyKey)
         if (!cancelled) setLeadDetail(detail)
       } catch (error) {
         if (!cancelled) {
@@ -199,14 +246,16 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [selectedLeadId])
+  }, [selectedPatient])
 
-  async function handleSaveLeadDetail(leadId: string, input: DentalLeadDetailUpdate) {
-    const lead = crmLeads.find((item) => item.id === leadId)
-    if (!lead) throw new Error('No encontramos el lead que quieres editar.')
+  async function handleSaveLeadDetail(input: DentalLeadDetailUpdate) {
+    if (!selectedPatient) throw new Error('No encontramos al paciente que quieres editar.')
 
-    await updateDentalLeadDetail(lead, input)
-    await Promise.all([loadCrm(), loadLeadDetail(leadId)])
+    await updateDentalLeadDetail({
+      lead: selectedLead,
+      usuarioId: selectedPatient.usuarioId || '',
+    }, input)
+    await Promise.all([loadCrm(), loadWaClientes(), loadLeadDetail(selectedPatient)])
   }
 
   async function handleMoveLead(leadId: string, stageKey: string) {
@@ -257,8 +306,13 @@ export default function App() {
 
     setCrmLeads((current) => current.map((item) => (item.id === leadId ? saved : item)))
 
-    if (selectedLeadId === leadId) {
-      await loadLeadDetail(leadId)
+    if (selectedPatient?.leadId === leadId && selectedPatient.usuarioId) {
+      await loadLeadDetail(selectedPatient)
+    } else if (selectedPatient?.leadId === leadId) {
+      await loadLeadDetail({
+        leadId,
+        usuarioId: selectedPatient.usuarioId || '',
+      })
     }
   }
 
@@ -270,8 +324,8 @@ export default function App() {
 
     await loadCrm()
 
-    if (selectedLeadIdRef.current) {
-      await loadLeadDetail(selectedLeadIdRef.current)
+    if (selectedPatientRef.current) {
+      await loadLeadDetail(selectedPatientRef.current)
     }
 
     return selected
@@ -286,8 +340,8 @@ export default function App() {
 
     await loadCrm()
 
-    if (selectedLeadIdRef.current) {
-      await loadLeadDetail(selectedLeadIdRef.current)
+    if (selectedPatientRef.current) {
+      await loadLeadDetail(selectedPatientRef.current)
     }
 
     return result
@@ -364,8 +418,14 @@ export default function App() {
     return created
   }
 
-  function openLead(leadId: string) {
-    setSelectedLeadId(leadId)
+  function openLead(identifier: string) {
+    const lead = crmLeads.find((item) => item.id === identifier) ?? crmLeads.find((item) => item.id === (waClientes.find((row) => row.usuarioId === identifier)?.crmLeadId || ''))
+    const usuario = waClientes.find((item) => item.usuarioId === identifier)
+
+    setSelectedPatient({
+      leadId: lead?.id || usuario?.crmLeadId || '',
+      usuarioId: usuario?.usuarioId || (lead ? waClientes.find((item) => item.crmLeadId === lead.id)?.usuarioId || '' : ''),
+    })
     setView('patient')
   }
 
@@ -423,6 +483,7 @@ export default function App() {
           {view === 'patient' && (
             <PatientView
               lead={selectedLead}
+              waClient={selectedWaCliente}
               leads={crmLeads}
               detail={leadDetail}
               detailLoading={leadDetailLoading}
