@@ -110,11 +110,18 @@ export default function App() {
     try {
       let knownUsers = waState
       let items = await listCalendarAppointments(leads, knownUsers)
-      const missingWithPhone = items.filter((item) => !item.matchedUsuarioId && canonicalMxPhoneKey(item.patientPhone))
+      const missingByPhone = new Map<string, CalendarAppointment>()
 
-      if (missingWithPhone.length > 0) {
-        await Promise.all(
-          missingWithPhone.map((item) =>
+      for (const item of items) {
+        const phoneKey = canonicalMxPhoneKey(item.patientPhone)
+        if (!item.matchedUsuarioId && phoneKey && !missingByPhone.has(phoneKey)) {
+          missingByPhone.set(phoneKey, item)
+        }
+      }
+
+      if (missingByPhone.size > 0) {
+        const resolutionResults = await Promise.allSettled(
+          [...missingByPhone.values()].map((item) =>
             ensureWaClienteEstado({
               patientName: item.patientName || item.title,
               phone: item.patientPhone,
@@ -122,13 +129,26 @@ export default function App() {
           ),
         )
 
-        knownUsers = await loadWaClientes()
-        items = await listCalendarAppointments(leads, knownUsers)
+        const createdUsers = resolutionResults
+          .filter((result): result is PromiseFulfilledResult<WaClienteEstado | null> => result.status === 'fulfilled')
+          .map((result) => result.value)
+          .filter((value): value is WaClienteEstado => Boolean(value))
+
+        const failedResolutions = resolutionResults.some((result) => result.status === 'rejected')
+
+        if (createdUsers.length > 0) {
+          knownUsers = mergeWaClientes(knownUsers, createdUsers)
+          setWaClientes(knownUsers)
+          items = await listCalendarAppointments(leads, knownUsers)
+        }
+
+        if (failedResolutions) {
+          setCalendarError('No se pudo resolver un paciente de Calendar.')
+        }
       }
 
       setCalendarAppointments(items)
     } catch (error) {
-      setCalendarAppointments([])
       setCalendarError(error instanceof Error ? error.message : 'No se pudo leer Google Calendar.')
     } finally {
       setCalendarLoading(false)
@@ -506,4 +526,18 @@ function addMinutesToIso(value: string, minutes: number) {
   const date = new Date(value)
   date.setMinutes(date.getMinutes() + minutes)
   return date.toISOString()
+}
+
+function mergeWaClientes(current: WaClienteEstado[], incoming: WaClienteEstado[]) {
+  const merged = new Map<string, WaClienteEstado>()
+
+  for (const item of current) {
+    if (item.usuarioId) merged.set(item.usuarioId, item)
+  }
+
+  for (const item of incoming) {
+    if (item.usuarioId) merged.set(item.usuarioId, item)
+  }
+
+  return [...merged.values()]
 }

@@ -58,30 +58,13 @@ export async function ensureWaClienteEstado(params: {
   if (!phoneKey) return null
 
   const client = requireSupabase()
-  const { data: existingRows, error: existingError } = await client
-    .from(TABLE)
-    .select('usuario_id, whatsapp_phone, subscriber_id, nombre_paciente, crm_lead_id')
-    .or(`whatsapp_phone.ilike.%${phoneKey},subscriber_id.eq.${phoneKey}`)
-
-  if (existingError) throw existingError
-
-  const matched = (existingRows ?? [])
-    .map((row) => mapWaClienteEstado(row as RawRow))
-    .find((row) => canonicalMxPhoneKey(row.whatsappPhone) === phoneKey || canonicalMxPhoneKey(row.subscriberId) === phoneKey)
-
-  if (matched) return matched
-
-  const payload = {
-    nombre_paciente: params.patientName || 'Paciente Calendar',
-    whatsapp_phone: `52${phoneKey}`,
-  }
-
   const { data, error } = await client
-    .from(TABLE)
-    .insert(payload)
-    .select('usuario_id, whatsapp_phone, subscriber_id, nombre_paciente, crm_lead_id')
-    .single()
+    .rpc('ensure_wa_cliente_calendar', {
+      p_nombre: params.patientName || 'Paciente Calendar',
+      p_telefono: params.phone,
+    })
 
   if (error) throw error
-  return mapWaClienteEstado(data as RawRow)
+  const firstRow = Array.isArray(data) ? data[0] : null
+  return firstRow ? mapWaClienteEstado(firstRow as RawRow) : null
 }
