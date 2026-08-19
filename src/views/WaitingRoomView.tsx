@@ -1,4 +1,4 @@
-import { FormEvent, useDeferredValue, useMemo, useState } from 'react'
+import { FormEvent, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import type { CalendarAppointment, CrmLead, KioskFlow, KioskLeadStatus } from '../types'
 
 interface Props {
@@ -8,8 +8,15 @@ interface Props {
   loading: boolean
   onRefresh: () => void
   onOpenLead: (leadId: string) => void
-  onRegisterWalkIn: (name: string, phone: string) => Promise<CrmLead>
+  onRegisterWalkIn: (
+    name: string,
+    phone: string,
+    appointmentType?: 'valoracion' | 'limpieza',
+    appointmentStart?: string,
+  ) => Promise<CrmLead>
   onUpdateLeadStatus: (leadId: string, kioskStatus: KioskLeadStatus, kioskFlow?: KioskFlow) => Promise<void>
+  onCallNextPatient: (mode: 'automatico' | 'manual') => Promise<CrmLead | null>
+  onFinalizeConsultationByLead: (leadId: string, mode: 'manual' | 'telegram') => Promise<{ finalizedLead: CrmLead | null; calledNextLead: CrmLead | null }>
 }
 
 export function WaitingRoomView({
@@ -21,15 +28,20 @@ export function WaitingRoomView({
   onOpenLead,
   onRegisterWalkIn,
   onUpdateLeadStatus,
+  onCallNextPatient,
+  onFinalizeConsultationByLead,
 }: Props) {
   const [mode, setMode] = useState<KioskFlow>('con_cita')
   const [nameSearch, setNameSearch] = useState('')
   const [phoneSearch, setPhoneSearch] = useState('')
   const [walkInName, setWalkInName] = useState('')
   const [walkInPhone, setWalkInPhone] = useState('')
+  const [walkInAppointmentType, setWalkInAppointmentType] = useState<'valoracion' | 'limpieza'>('valoracion')
+  const [walkInAppointmentStart, setWalkInAppointmentStart] = useState('')
   const [actionMessage, setActionMessage] = useState('')
   const [busyLeadId, setBusyLeadId] = useState('')
   const [submittingWalkIn, setSubmittingWalkIn] = useState(false)
+  const [now, setNow] = useState(() => Date.now())
 
   const deferredNameSearch = useDeferredValue(nameSearch)
   const deferredPhoneSearch = useDeferredValue(phoneSearch)
@@ -91,6 +103,8 @@ export function WaitingRoomView({
 
   const arrivedTodayCount = waitingPatients.length + (currentPatient ? 1 : 0) + finishedPatients.length
   const pendingTodayCount = todayScheduledLeads.filter((lead) => lead.kioskStatus === 'pendiente').length
+  const currentConsultationMinutes = currentPatient ? minutesSince(currentPatient.consultaInicioAt || currentPatient.arrivalAt, now) : 0
+  const hasConsultationDelay = currentConsultationMinutes >= 30
 
   const visiblePatients = useMemo(() => {
     const normalizedName = deferredNameSearch.trim().toLowerCase()
@@ -126,15 +140,50 @@ export function WaitingRoomView({
     }
   }
 
-  async function handleStatusChange(leadId: string, status: KioskLeadStatus) {
-    setBusyLeadId(leadId)
+  async function handleAdvanceQueue() {
+    setActionMessage('')
+
+    if (currentPatient) {
+      setActionMessage('Ya hay un paciente en consulta. El cierre normal lo hace n8n cuando el doctor confirma el informe.')
+      return
+    }
+
+    if (!waitingPatients.length) {
+      setActionMessage('No hay pacientes esperando en este momento.')
+      return
+    }
+
+    setBusyLeadId(waitingPatients[0].id)
+    try {
+      const selected = await onCallNextPatient('manual')
+      setActionMessage(selected ? `Se llamó a ${selected.name}.` : 'No había un turno disponible para pasar en este momento.')
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : 'No se pudo llamar al siguiente paciente.')
+    } finally {
+      setBusyLeadId('')
+    }
+  }
+
+  async function handleManualFinalizeCurrent() {
+    if (!currentPatient) {
+      setActionMessage('No hay una consulta activa para cerrar manualmente.')
+      return
+    }
+
+    setBusyLeadId(currentPatient.id)
     setActionMessage('')
 
     try {
-      await onUpdateLeadStatus(leadId, status)
-      setActionMessage('Estado actualizado en Supabase.')
+      const result = await onFinalizeConsultationByLead(currentPatient.id, 'manual')
+      if (result.calledNextLead) {
+        setActionMessage(`Cierre manual aplicado. Terminó ${currentPatient.name} y entró ${result.calledNextLead.name}.`)
+      } else if (result.finalizedLead) {
+        setActionMessage(`Cierre manual aplicado. Terminó ${currentPatient.name}. No hay más pacientes esperando.`)
+      } else {
+        setActionMessage('Ese paciente ya no estaba en consulta. La vista se actualizó con Supabase.')
+      }
     } catch (error) {
-      setActionMessage(error instanceof Error ? error.message : 'No se pudo actualizar el estado.')
+      setActionMessage(error instanceof Error ? error.message : 'No se pudo cerrar manualmente la atención.')
     } finally {
       setBusyLeadId('')
     }
@@ -151,10 +200,21 @@ export function WaitingRoomView({
     setActionMessage('')
 
     try {
-      const lead = await onRegisterWalkIn(walkInName.trim(), walkInPhone.trim())
-      setActionMessage(`Paciente registrado en espera: ${lead.name}.`)
+      const lead = await onRegisterWalkIn(
+        walkInName.trim(),
+        walkInPhone.trim(),
+        walkInAppointmentStart ? walkInAppointmentType : undefined,
+        walkInAppointmentStart ? toIsoDateTime(walkInAppointmentStart) : undefined,
+      )
+      setActionMessage(
+        walkInAppointmentStart
+          ? `Paciente registrado en espera y cita enviada a Calendar: ${lead.name}.`
+          : `Paciente registrado en espera: ${lead.name}.`,
+      )
       setWalkInName('')
       setWalkInPhone('')
+      setWalkInAppointmentStart('')
+      setWalkInAppointmentType('valoracion')
       onOpenLead(lead.id)
     } catch (error) {
       setActionMessage(error instanceof Error ? error.message : 'No se pudo registrar el paciente sin cita.')
@@ -162,6 +222,11 @@ export function WaitingRoomView({
       setSubmittingWalkIn(false)
     }
   }
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   return (
     <div className="view-stack">
@@ -188,15 +253,64 @@ export function WaitingRoomView({
         </article>
       </section>
 
+      {currentPatient && (
+        <section className={`panel waiting-current-card ${hasConsultationDelay ? 'alert-panel' : ''}`}>
+          <div className="section-head compact">
+            <div>
+              <span className="eyebrow">Consulta actual</span>
+              <h2>{currentPatient.name}</h2>
+            </div>
+            <span className={hasConsultationDelay ? 'soft-pill soft-pill-alert' : 'soft-pill'}>
+              {hasConsultationDelay ? `Sin cierre hace ${currentConsultationMinutes} min` : 'En consulta'}
+            </span>
+          </div>
+
+          {hasConsultationDelay && (
+            <div className="waiting-alert-banner">
+              Sin cierre hace {currentConsultationMinutes} min. Revisa si ya terminó la valoración.
+            </div>
+          )}
+
+          <div className="appointment-list">
+            <article className="appointment-card appointment-card-static appointment-card-match-yes">
+              <div>
+                <strong>{currentPatient.name}</strong>
+                <span>{currentPatient.phone || currentPatient.waId || 'Sin teléfono'}</span>
+                <small>
+                  Llegó {currentPatient.arrivalAt ? formatTime(currentPatient.arrivalAt) : 'sin hora'} ·{' '}
+                  {currentPatient.appointmentDate ? `cita ${formatTime(currentPatient.appointmentDate)}` : 'sin cita calendar'}
+                </small>
+                <small>El cierre normal ocurre cuando n8n cierra el informe del doctor.</small>
+              </div>
+              <div className="patient-browser-actions">
+                <button className="secondary-button" onClick={() => onOpenLead(currentPatient.id)}>Ficha</button>
+                <button
+                  className="secondary-button"
+                  onClick={() => void handleManualFinalizeCurrent()}
+                  disabled={busyLeadId === currentPatient.id}
+                >
+                  {busyLeadId === currentPatient.id ? 'Cerrando...' : 'Finalizar atención (respaldo manual)'}
+                </button>
+              </div>
+            </article>
+          </div>
+        </section>
+      )}
+
       <section className="panel kiosk-entry-panel">
         <div className="section-head compact">
           <div>
             <span className="eyebrow">Kiosko</span>
             <h2>Llegada del paciente</h2>
           </div>
-          <button className="secondary-button" onClick={onRefresh} disabled={loading}>
-            {loading || calendarLoading ? 'Actualizando...' : 'Actualizar'}
-          </button>
+          <div className="patient-browser-actions">
+            <button className="secondary-button" onClick={onRefresh} disabled={loading}>
+              {loading || calendarLoading ? 'Actualizando...' : 'Actualizar'}
+            </button>
+            <button className="primary-button" onClick={() => void handleAdvanceQueue()} disabled={busyLeadId !== ''}>
+              Siguiente
+            </button>
+          </div>
         </div>
 
         <div className="kiosk-mode-switch">
@@ -261,8 +375,24 @@ export function WaitingRoomView({
               <span>Telefono</span>
               <input className="field-input" value={walkInPhone} onChange={(event) => setWalkInPhone(event.target.value)} />
             </label>
+            <label className="field-row field-row-editable">
+              <span>Tipo de cita</span>
+              <select className="field-input" value={walkInAppointmentType} onChange={(event) => setWalkInAppointmentType(event.target.value as 'valoracion' | 'limpieza')}>
+                <option value="valoracion">Valoración</option>
+                <option value="limpieza">Limpieza</option>
+              </select>
+            </label>
+            <label className="field-row field-row-editable">
+              <span>Horario</span>
+              <input
+                className="field-input"
+                type="datetime-local"
+                value={walkInAppointmentStart}
+                onChange={(event) => setWalkInAppointmentStart(event.target.value)}
+              />
+            </label>
             <button className="primary-button" type="submit" disabled={submittingWalkIn}>
-              {submittingWalkIn ? 'Registrando...' : 'Registrar en espera'}
+              {submittingWalkIn ? 'Registrando...' : walkInAppointmentStart ? 'Registrar y agendar' : 'Registrar en espera'}
             </button>
           </form>
         )}
@@ -340,12 +470,9 @@ export function WaitingRoomView({
                     <span>{lead.phone || lead.waId || 'Sin telefono'}</span>
                     <small>{lead.arrivalAt ? `Llegó ${formatTime(lead.arrivalAt)}` : 'Pendiente de recepción'}</small>
                   </div>
-                  <div className="patient-browser-actions">
-                    <button className="secondary-button" onClick={() => onOpenLead(lead.id)}>Ficha</button>
-                    <button className="primary-button" onClick={() => void handleStatusChange(lead.id, 'en_espera')} disabled={busyLeadId === lead.id}>
-                      Poner en espera
-                    </button>
-                  </div>
+                <div className="patient-browser-actions">
+                  <button className="secondary-button" onClick={() => onOpenLead(lead.id)}>Ficha</button>
+                </div>
                 </article>
               ))
             ) : (
@@ -366,18 +493,26 @@ export function WaitingRoomView({
           </div>
 
           <div className="appointment-list">
-            {waitingPatients.map((lead) => (
+            {waitingPatients.map((lead, index) => (
               <article className="appointment-card appointment-card-static" key={lead.id}>
                 <div>
                   <strong>{lead.name}</strong>
                   <span>{lead.appointmentDate ? formatTime(lead.appointmentDate) : 'Sin cita'} · llegó {lead.arrivalAt ? formatTime(lead.arrivalAt) : 'ahora'}</span>
-                  <small>{lead.kioskFlow === 'sin_cita' ? 'Sin cita' : 'Con cita del día'}</small>
+                  <small>{lead.kioskFlow === 'sin_cita' ? 'Sin cita' : 'Con cita del día'} · esperando {minutesSince(lead.arrivalAt, now)} min</small>
                 </div>
                 <div className="patient-browser-actions">
                   <button className="secondary-button" onClick={() => onOpenLead(lead.id)}>Ficha</button>
-                  <button className="primary-button" onClick={() => void handleStatusChange(lead.id, 'en_consulta')} disabled={busyLeadId === lead.id}>
-                    Pasar
-                  </button>
+                  {index === 0 ? (
+                    <button
+                      className="primary-button"
+                      onClick={() => void handleAdvanceQueue()}
+                      disabled={busyLeadId === lead.id || Boolean(currentPatient)}
+                    >
+                      {busyLeadId === lead.id ? 'Llamando...' : currentPatient ? 'Consulta activa' : 'Pasar'}
+                    </button>
+                  ) : (
+                    <button className="secondary-button" disabled>En fila</button>
+                  )}
                 </div>
               </article>
             ))}
@@ -418,6 +553,11 @@ function formatTime(value: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return 'Sin hora'
   return date.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
+}
+
+function toIsoDateTime(value: string): string {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : date.toISOString()
 }
 
 function compareByArrival(left: CrmLead, right: CrmLead): number {
@@ -479,4 +619,10 @@ function labelForAppointmentState(status: KioskLeadStatus): string {
 
 function findLeadById(leads: CrmLead[], leadId: string): CrmLead | null {
   return leads.find((lead) => lead.id === leadId) ?? null
+}
+
+function minutesSince(value: string, now: number): number {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 0
+  return Math.max(0, Math.floor((now - date.getTime()) / 60_000))
 }

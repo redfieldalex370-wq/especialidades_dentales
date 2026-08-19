@@ -1,5 +1,5 @@
 import { useDeferredValue, useEffect, useMemo, useState } from 'react'
-import type { ClinicalRecord, CommercialCase, CrmLead, CrmLeadDetail, DentalLeadDetailUpdate, KioskFlow, KioskLeadStatus, TraceabilityEvent } from '../types'
+import type { CasoComercialEstado, ClinicalRecord, CommercialCase, CrmLead, CrmLeadDetail, DentalLeadDetailUpdate, KioskFlow, KioskLeadStatus, TraceabilityEvent } from '../types'
 
 interface Props {
   lead: CrmLead | null
@@ -10,6 +10,8 @@ interface Props {
   onOpenLead: (leadId: string) => void
   onSaveDetail: (leadId: string, input: DentalLeadDetailUpdate) => Promise<void>
   onUpdateKioskStatus: (leadId: string, kioskStatus: KioskLeadStatus, kioskFlow?: KioskFlow) => Promise<void>
+  onCallNextPatient: (mode: 'automatico' | 'manual') => Promise<CrmLead | null>
+  onFinalizeConsultationByLead: (leadId: string, mode: 'manual' | 'telegram') => Promise<{ finalizedLead: CrmLead | null; calledNextLead: CrmLead | null }>
 }
 
 export function PatientView({
@@ -21,6 +23,8 @@ export function PatientView({
   onOpenLead,
   onSaveDetail,
   onUpdateKioskStatus,
+  onCallNextPatient,
+  onFinalizeConsultationByLead,
 }: Props) {
   const [nameSearch, setNameSearch] = useState('')
   const [phoneSearch, setPhoneSearch] = useState('')
@@ -28,6 +32,7 @@ export function PatientView({
   const [saving, setSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState('')
   const [kioskBusy, setKioskBusy] = useState(false)
+  const [saveError, setSaveError] = useState('')
   const deferredNameSearch = useDeferredValue(nameSearch)
   const deferredPhoneSearch = useDeferredValue(phoneSearch)
   const hasSearch = deferredNameSearch.trim().length > 0 || deferredPhoneSearch.trim().length > 0
@@ -51,8 +56,9 @@ export function PatientView({
   useEffect(() => {
     setDraft(buildDraft(lead, detail))
     setSaveMessage('')
+    setSaveError('')
     setEditing(false)
-  }, [lead?.id, detail?.clinicalRecord?.updatedAt, detail?.commercialCase?.updatedAt])
+  }, [lead?.id, detail?.fichaClinica?.updatedAt, detail?.casoComercial?.updatedAt])
 
   if (!lead) {
     return (
@@ -70,23 +76,28 @@ export function PatientView({
   }
 
   const activeLead = lead
-  const raw = lead.rawPayload
-  const clinical = detail?.clinicalRecord ?? null
-  const commercial = detail?.commercialCase ?? null
-  const events = buildEvents(lead, detail?.traceability ?? [])
+  const clinical = detail?.fichaClinica ?? null
+  const commercial = detail?.casoComercial ?? null
+  const events = buildEvents(detail?.trazabilidad ?? [])
 
   async function handleSave() {
+    setSaveError('')
+    if (draft.casoComercial.estado === 'abono_recibido' && (!draft.casoComercial.montoCerrado || draft.casoComercial.montoCerrado <= 0)) {
+      setSaveError('Si el estado es abono_recibido, captura un monto cerrado mayor a 0.')
+      return
+    }
+
     setSaving(true)
     setSaveMessage('')
 
     try {
       await onSaveDetail(activeLead.id, {
-        clinicalRecord: {
-          ...draft.clinicalRecord,
+        fichaClinica: {
+          ...draft.fichaClinica,
         },
-        commercialCase: {
-          ...draft.commercialCase,
-          proximaCitaSugerida: draft.commercialCase.proximaCitaSugerida ? toIsoDateTime(draft.commercialCase.proximaCitaSugerida) : '',
+        casoComercial: {
+          ...draft.casoComercial,
+          proximaCitaSugerida: draft.casoComercial.proximaCitaSugerida ? toIsoDateTime(draft.casoComercial.proximaCitaSugerida) : '',
         },
       })
       setEditing(false)
@@ -107,6 +118,32 @@ export function PatientView({
       setSaveMessage('Estado operativo actualizado.')
     } catch (error) {
       setSaveMessage(error instanceof Error ? error.message : 'No se pudo actualizar el estado operativo.')
+    } finally {
+      setKioskBusy(false)
+    }
+  }
+
+  async function handleAdvanceOperationalFlow() {
+    setKioskBusy(true)
+    setSaveMessage('')
+
+    try {
+      if (activeLead.kioskStatus === 'en_consulta') {
+        const result = await onFinalizeConsultationByLead(activeLead.id, 'manual')
+        if (result.calledNextLead) {
+          setSaveMessage(`Cierre manual aplicado. Siguiente paciente: ${result.calledNextLead.name}.`)
+        } else if (result.finalizedLead) {
+          setSaveMessage('Cierre manual aplicado. No hay más pacientes esperando.')
+        } else {
+          setSaveMessage('Este paciente ya no estaba en consulta. La ficha se actualizó con Supabase.')
+        }
+        return
+      }
+
+      const selected = await onCallNextPatient('manual')
+      setSaveMessage(selected ? `Se llamó al siguiente paciente: ${selected.name}.` : 'No hay pacientes esperando en este momento.')
+    } catch (error) {
+      setSaveMessage(error instanceof Error ? error.message : 'No se pudo avanzar el flujo operativo.')
     } finally {
       setKioskBusy(false)
     }
@@ -139,6 +176,13 @@ export function PatientView({
         </section>
       )}
 
+      {saveError && (
+        <section className="panel warning-panel">
+          <span className="eyebrow">Ficha</span>
+          <p>{saveError}</p>
+        </section>
+      )}
+
       {detailError && (
         <section className="panel warning-panel">
           <span className="eyebrow">Ficha</span>
@@ -159,6 +203,8 @@ export function PatientView({
         <div className="field-grid">
           <Field label="Flujo" value={lead.kioskFlow === 'sin_cita' ? 'Sin cita' : 'Con cita'} />
           <Field label="Llegada" value={lead.arrivalAt ? formatDateTime(lead.arrivalAt) : 'Sin llegada registrada'} />
+          <Field label="Inicio consulta" value={lead.consultaInicioAt ? formatDateTime(lead.consultaInicioAt) : 'Sin inicio registrado'} />
+          <Field label="Fin consulta" value={lead.consultaFinAt ? formatDateTime(lead.consultaFinAt) : 'Sin cierre registrado'} />
           <Field label="Cita activa" value={lead.appointmentDate ? formatDateTime(lead.appointmentDate) : 'Sin cita'} />
           <Field label="Estado de sala" value={labelForKioskStatus(lead.kioskStatus)} />
         </div>
@@ -167,11 +213,11 @@ export function PatientView({
           <button className="secondary-button" onClick={() => void handleKioskAction('en_espera', lead.appointmentDate ? 'con_cita' : 'sin_cita')} disabled={kioskBusy}>
             {kioskBusy ? 'Guardando...' : 'Marcar llegada'}
           </button>
-          <button className="secondary-button" onClick={() => void handleKioskAction('en_consulta')} disabled={kioskBusy}>
-            Pasar a consulta
+          <button className="secondary-button" onClick={() => void handleAdvanceOperationalFlow()} disabled={kioskBusy}>
+            {lead.kioskStatus === 'en_consulta' ? 'Finalizar atención (respaldo manual)' : 'Llamar siguiente'}
           </button>
-          <button className="primary-button" onClick={() => void handleKioskAction('finalizada')} disabled={kioskBusy}>
-            Finalizar atencion
+          <button className="primary-button" onClick={() => void handleAdvanceOperationalFlow()} disabled={kioskBusy || lead.kioskStatus !== 'en_consulta'}>
+            Cierre manual de respaldo
           </button>
         </div>
       </section>
@@ -185,12 +231,11 @@ export function PatientView({
               <h2>Valoracion</h2>
             </div>
           </div>
-          <EditableField label="Motivo de consulta" editing={editing} type="textarea" value={draft.clinicalRecord.motivoConsulta} displayValue={clinicalText(clinical, 'motivoConsulta') || readValue(raw.motivo_consulta, raw.motivo, lead.treatment)} onChange={(value) => setDraft((current) => ({ ...current, clinicalRecord: { ...current.clinicalRecord, motivoConsulta: value } }))} />
-          <EditableField label="Diagnostico" editing={editing} type="textarea" value={draft.clinicalRecord.diagnostico} displayValue={clinicalText(clinical, 'diagnostico') || readValue(raw.diagnostico)} onChange={(value) => setDraft((current) => ({ ...current, clinicalRecord: { ...current.clinicalRecord, diagnostico: value } }))} />
-          <EditableField label="Tratamiento propuesto" editing={editing} type="textarea" value={draft.clinicalRecord.tratamientoPropuesto} displayValue={clinicalText(clinical, 'tratamientoPropuesto') || readValue(raw.tratamiento_propuesto, raw.especialidad, lead.treatment)} onChange={(value) => setDraft((current) => ({ ...current, clinicalRecord: { ...current.clinicalRecord, tratamientoPropuesto: value } }))} />
-          <EditableField label="Especialidad" editing={editing} value={draft.clinicalRecord.especialidad} displayValue={clinicalText(clinical, 'especialidad') || readValue(raw.especialidad)} onChange={(value) => setDraft((current) => ({ ...current, clinicalRecord: { ...current.clinicalRecord, especialidad: value } }))} />
-          <EditableField label="Piezas involucradas" editing={editing} value={draft.clinicalRecord.piezasInvolucradas} displayValue={clinicalText(clinical, 'piezasInvolucradas') || readValue(raw.piezas_involucradas)} onChange={(value) => setDraft((current) => ({ ...current, clinicalRecord: { ...current.clinicalRecord, piezasInvolucradas: value } }))} />
-          <EditableField label="Notas de evolucion" editing={editing} type="textarea" value={draft.clinicalRecord.notasEvolucion} displayValue={clinicalText(clinical, 'notasEvolucion') || readValue(raw.notas_evolucion)} onChange={(value) => setDraft((current) => ({ ...current, clinicalRecord: { ...current.clinicalRecord, notasEvolucion: value } }))} />
+          <EditableField label="Motivo de consulta" editing={editing} type="textarea" value={draft.fichaClinica.motivoConsulta} displayValue={clinicalText(clinical, 'motivoConsulta') || 'No mencionado'} onChange={(value) => setDraft((current) => ({ ...current, fichaClinica: { ...current.fichaClinica, motivoConsulta: value } }))} />
+          <EditableField label="Diagnostico" editing={editing} type="textarea" value={draft.fichaClinica.diagnostico} displayValue={clinicalText(clinical, 'diagnostico') || 'No mencionado'} onChange={(value) => setDraft((current) => ({ ...current, fichaClinica: { ...current.fichaClinica, diagnostico: value } }))} />
+          <EditableField label="Tratamiento propuesto" editing={editing} type="textarea" value={draft.fichaClinica.tratamientoPropuesto} displayValue={clinicalText(clinical, 'tratamientoPropuesto') || 'No mencionado'} onChange={(value) => setDraft((current) => ({ ...current, fichaClinica: { ...current.fichaClinica, tratamientoPropuesto: value } }))} />
+          <EditableField label="Piezas involucradas" editing={editing} value={draft.fichaClinica.piezasInvolucradas} displayValue={clinicalText(clinical, 'piezasInvolucradas') || 'No mencionado'} onChange={(value) => setDraft((current) => ({ ...current, fichaClinica: { ...current.fichaClinica, piezasInvolucradas: value } }))} />
+          <EditableField label="Notas de evolucion" editing={editing} type="textarea" value={draft.fichaClinica.notasEvolucion} displayValue={clinicalText(clinical, 'notasEvolucion') || 'No mencionado'} onChange={(value) => setDraft((current) => ({ ...current, fichaClinica: { ...current.fichaClinica, notasEvolucion: value } }))} />
           <Field label="Adjuntos" value={clinical?.archivosAdjuntos.length ? `${clinical.archivosAdjuntos.length} archivo(s)` : 'Sin adjuntos'} />
         </article>
 
@@ -206,29 +251,23 @@ export function PatientView({
             <span>Costo cotizado</span>
             <strong>{editing ? 'Editable abajo' : commercial?.costoCotizado ? money(commercial.costoCotizado) : lead.quotedAmount ? money(lead.quotedAmount) : 'Pendiente'}</strong>
           </div>
-          <EditableField label="Costo cotizado" editing={editing} type="number" value={draft.commercialCase.costoCotizado === null ? '' : String(draft.commercialCase.costoCotizado)} displayValue={commercial?.costoCotizado ? money(commercial.costoCotizado) : lead.quotedAmount ? money(lead.quotedAmount) : 'Pendiente'} onChange={(value) => setDraft((current) => ({ ...current, commercialCase: { ...current.commercialCase, costoCotizado: value ? Number(value) : null } }))} />
-          <EditableField label="Promocion aplicada" editing={editing} value={draft.commercialCase.promocionAplicada} displayValue={commercialText(commercial, 'promocionAplicada') || readValue(raw.promocion_aplicada)} onChange={(value) => setDraft((current) => ({ ...current, commercialCase: { ...current.commercialCase, promocionAplicada: value } }))} />
-          <EditableField label="Objeciones" editing={editing} type="textarea" value={draft.commercialCase.objeciones} displayValue={commercialText(commercial, 'objeciones') || readValue(raw.objeciones)} onChange={(value) => setDraft((current) => ({ ...current, commercialCase: { ...current.commercialCase, objeciones: value } }))} />
-          <EditableField label="Indicacion seguimiento" editing={editing} type="textarea" value={draft.commercialCase.indicacionSeguimiento} displayValue={commercialText(commercial, 'indicacionSeguimiento') || readValue(raw.indicacion_seguimiento, lead.reminderText)} onChange={(value) => setDraft((current) => ({ ...current, commercialCase: { ...current.commercialCase, indicacionSeguimiento: value } }))} />
-          <EditableField label="Proxima cita sugerida" editing={editing} type="datetime-local" value={draft.commercialCase.proximaCitaSugerida} displayValue={commercial?.proximaCitaSugerida ? formatDateTime(commercial.proximaCitaSugerida) : lead.appointmentDate ? formatDateTime(lead.appointmentDate) : 'Pendiente'} onChange={(value) => setDraft((current) => ({ ...current, commercialCase: { ...current.commercialCase, proximaCitaSugerida: value } }))} />
-          <EditableField label="Cerrado por" editing={editing} value={draft.commercialCase.cerradoPor} displayValue={commercialText(commercial, 'cerradoPor') || 'No definido'} onChange={(value) => setDraft((current) => ({ ...current, commercialCase: { ...current.commercialCase, cerradoPor: value } }))} />
-          <EditableField label="Monto cerrado" editing={editing} type="number" value={draft.commercialCase.montoCerrado === null ? '' : String(draft.commercialCase.montoCerrado)} displayValue={commercial?.montoCerrado ? money(commercial.montoCerrado) : 'Sin abono'} onChange={(value) => setDraft((current) => ({ ...current, commercialCase: { ...current.commercialCase, montoCerrado: value ? Number(value) : null } }))} />
-          <EditableField label="Estado comercial" editing={editing} value={draft.commercialCase.estado} displayValue={commercialText(commercial, 'estado') || readValue(raw.estado, lead.appointmentStatus)} onChange={(value) => setDraft((current) => ({ ...current, commercialCase: { ...current.commercialCase, estado: value } }))} />
-          <EditableField label="Motivo escalamiento" editing={editing} type="textarea" value={draft.commercialCase.escaladoMotivo} displayValue={commercialText(commercial, 'escaladoMotivo') || 'No mencionado'} onChange={(value) => setDraft((current) => ({ ...current, commercialCase: { ...current.commercialCase, escaladoMotivo: value } }))} />
-          {editing ? (
-            <label className="field-row field-row-checkbox">
-              <span>Escalado a closer</span>
-              <input
-                type="checkbox"
-                checked={draft.commercialCase.escaladoCloser}
-                onChange={(event) => setDraft((current) => ({ ...current, commercialCase: { ...current.commercialCase, escaladoCloser: event.target.checked } }))}
-              />
-            </label>
-          ) : (
+          <EditableField label="Costo cotizado" editing={editing} type="number" value={draft.casoComercial.costoCotizado === null ? '' : String(draft.casoComercial.costoCotizado)} displayValue={commercial?.costoCotizado ? money(commercial.costoCotizado) : lead.quotedAmount ? money(lead.quotedAmount) : 'Pendiente'} onChange={(value) => setDraft((current) => ({ ...current, casoComercial: { ...current.casoComercial, costoCotizado: value ? Number(value) : null } }))} />
+          <EditableField label="Promocion aplicada" editing={editing} value={draft.casoComercial.promocionAplicada} displayValue={commercialText(commercial, 'promocionAplicada') || 'No mencionado'} onChange={(value) => setDraft((current) => ({ ...current, casoComercial: { ...current.casoComercial, promocionAplicada: value } }))} />
+          <EditableField label="Objeciones" editing={editing} type="textarea" value={draft.casoComercial.objeciones} displayValue={commercialText(commercial, 'objeciones') || 'No mencionado'} onChange={(value) => setDraft((current) => ({ ...current, casoComercial: { ...current.casoComercial, objeciones: value } }))} />
+          <EditableField label="Indicacion seguimiento" editing={editing} type="textarea" value={draft.casoComercial.indicacionSeguimiento} displayValue={commercialText(commercial, 'indicacionSeguimiento') || 'No mencionado'} onChange={(value) => setDraft((current) => ({ ...current, casoComercial: { ...current.casoComercial, indicacionSeguimiento: value } }))} />
+          <EditableField label="Proxima cita sugerida" editing={editing} type="datetime-local" value={draft.casoComercial.proximaCitaSugerida} displayValue={commercial?.proximaCitaSugerida ? formatDateTime(commercial.proximaCitaSugerida) : lead.appointmentDate ? formatDateTime(lead.appointmentDate) : 'Pendiente'} onChange={(value) => setDraft((current) => ({ ...current, casoComercial: { ...current.casoComercial, proximaCitaSugerida: value } }))} />
+          <EditableSelectField label="Estado comercial" editing={editing} value={draft.casoComercial.estado} displayValue={labelForEstado(draft.casoComercial.estado)} options={ESTADO_OPTIONS} onChange={(value) => setDraft((current) => ({ ...current, casoComercial: { ...current.casoComercial, estado: value as CasoComercialEstado } }))} />
+          {(draft.casoComercial.costoCotizado ?? 0) > 45000 && draft.casoComercial.estado !== 'escalado_closer' && (
             <div className="status-strip">
-              <span>Escalado a closer</span>
-              <strong>{commercial?.escaladoCloser ? 'Si' : 'No'}</strong>
+              <span>Advertencia</span>
+              <strong>Sugerencia: escalar a closer por monto mayor a $45,000</strong>
             </div>
+          )}
+          {draft.casoComercial.estado === 'abono_recibido' && (
+            <>
+              <EditableField label="Monto cerrado" editing={editing} type="number" value={draft.casoComercial.montoCerrado === null ? '' : String(draft.casoComercial.montoCerrado)} displayValue={commercial?.montoCerrado ? money(commercial.montoCerrado) : 'Sin abono'} onChange={(value) => setDraft((current) => ({ ...current, casoComercial: { ...current.casoComercial, montoCerrado: value ? Number(value) : null } }))} />
+              <EditableSelectField label="Cerrado por" editing={editing} value={draft.casoComercial.cerradoPor || ''} displayValue={labelForCerradoPor(draft.casoComercial.cerradoPor || '')} options={CERRADO_POR_OPTIONS} onChange={(value) => setDraft((current) => ({ ...current, casoComercial: { ...current.casoComercial, cerradoPor: value as DentalLeadDetailUpdate['casoComercial']['cerradoPor'] } }))} />
+            </>
           )}
         </article>
       </section>
@@ -249,8 +288,6 @@ export function PatientView({
             <Field label="Canal" value={lead.source || 'WhatsApp'} />
             <Field label="Seguimiento" value={lead.reminderAt ? formatDateTime(lead.reminderAt) : 'Sin recordatorio'} />
             <Field label="Ultimo contacto" value={lead.lastContactAt ? formatDateTime(lead.lastContactAt) : 'Sin registro'} />
-            <Field label="Escalado a closer" value={commercial?.escaladoCloser ? 'Si' : 'No'} />
-            <Field label="Motivo escalamiento" value={commercialText(commercial, 'escaladoMotivo') || 'No mencionado'} />
           </div>
         </article>
 
@@ -395,12 +432,35 @@ function EditableField({
   )
 }
 
-function readValue(...values: unknown[]): string {
-  for (const value of values) {
-    if (typeof value === 'string' && value.trim()) return value.trim()
-  }
+function EditableSelectField({
+  label,
+  value,
+  displayValue,
+  editing,
+  onChange,
+  options,
+}: {
+  label: string
+  value: string
+  displayValue: string
+  editing: boolean
+  onChange: (value: string) => void
+  options: Array<{ value: string; label: string }>
+}) {
+  if (!editing) return <Field label={label} value={displayValue} />
 
-  return 'No mencionado'
+  return (
+    <label className="field-row field-row-editable">
+      <span>{label}</span>
+      <select className="field-input" value={value} onChange={(event) => onChange(event.target.value)}>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
 }
 
 function clinicalText(record: ClinicalRecord | null, field: keyof ClinicalRecord): string {
@@ -413,30 +473,13 @@ function commercialText(record: CommercialCase | null, field: keyof CommercialCa
   return typeof value === 'string' && value.trim() ? value.trim() : ''
 }
 
-function buildEvents(lead: CrmLead, traceability: TraceabilityEvent[]) {
-  if (traceability.length > 0) {
-    return traceability.map((event) => ({
-      id: event.id,
-      timestamp: formatDateTime(event.timestamp),
-      type: event.tipoEvento,
-      responsible: event.responsable,
-    }))
-  }
-
-  return [
-    lead.createdAt
-      ? { id: 'created', timestamp: formatDateTime(lead.createdAt), type: 'Lead creado en CRM', responsible: 'sistema' }
-      : null,
-    lead.appointmentDate
-      ? { id: 'appointment', timestamp: formatDateTime(lead.appointmentDate), type: 'Valoracion registrada', responsible: 'bot' }
-      : null,
-    lead.reminderAt
-      ? { id: 'reminder', timestamp: formatDateTime(lead.reminderAt), type: 'Seguimiento programado', responsible: 'closer' }
-      : null,
-    lead.updatedAt
-      ? { id: 'updated', timestamp: formatDateTime(lead.updatedAt), type: 'Ultima actualizacion del lead', responsible: 'sistema' }
-      : null,
-  ].filter(Boolean) as Array<{ id: string; timestamp: string; type: string; responsible: string }>
+function buildEvents(traceability: TraceabilityEvent[]) {
+  return traceability.map((event) => ({
+    id: event.eventoId,
+    timestamp: formatDateTime(event.timestamp),
+    type: event.tipoEvento,
+    responsible: event.responsable,
+  }))
 }
 
 function formatDateTime(value: string): string {
@@ -457,25 +500,23 @@ function money(value: number): string {
 
 function buildDraft(lead: CrmLead | null, detail: CrmLeadDetail | null): DentalLeadDetailUpdate {
   return {
-    clinicalRecord: {
-      motivoConsulta: detail?.clinicalRecord?.motivoConsulta || stringOrEmpty(lead?.rawPayload?.motivo_consulta, lead?.treatment),
-      diagnostico: detail?.clinicalRecord?.diagnostico || stringOrEmpty(lead?.rawPayload?.diagnostico),
-      tratamientoPropuesto: detail?.clinicalRecord?.tratamientoPropuesto || stringOrEmpty(lead?.rawPayload?.tratamiento_propuesto, lead?.treatment),
-      especialidad: detail?.clinicalRecord?.especialidad || stringOrEmpty(lead?.rawPayload?.especialidad),
-      piezasInvolucradas: detail?.clinicalRecord?.piezasInvolucradas || stringOrEmpty(lead?.rawPayload?.piezas_involucradas),
-      notasEvolucion: detail?.clinicalRecord?.notasEvolucion || stringOrEmpty(lead?.rawPayload?.notas_evolucion),
+    fichaClinica: {
+      motivoConsulta: detail?.fichaClinica?.motivoConsulta || '',
+      diagnostico: detail?.fichaClinica?.diagnostico || '',
+      tratamientoPropuesto: detail?.fichaClinica?.tratamientoPropuesto || '',
+      piezasInvolucradas: detail?.fichaClinica?.piezasInvolucradas || '',
+      notasEvolucion: detail?.fichaClinica?.notasEvolucion || '',
+      archivosAdjuntos: detail?.fichaClinica?.archivosAdjuntos || [],
     },
-    commercialCase: {
-      costoCotizado: detail?.commercialCase?.costoCotizado ?? lead?.quotedAmount ?? null,
-      promocionAplicada: detail?.commercialCase?.promocionAplicada || stringOrEmpty(lead?.rawPayload?.promocion_aplicada),
-      objeciones: detail?.commercialCase?.objeciones || stringOrEmpty(lead?.rawPayload?.objeciones),
-      indicacionSeguimiento: detail?.commercialCase?.indicacionSeguimiento || stringOrEmpty(lead?.rawPayload?.indicacion_seguimiento, lead?.reminderText),
-      proximaCitaSugerida: toDateTimeLocal(detail?.commercialCase?.proximaCitaSugerida || lead?.appointmentDate || ''),
-      estado: detail?.commercialCase?.estado || stringOrEmpty(lead?.appointmentStatus),
-      montoCerrado: detail?.commercialCase?.montoCerrado ?? null,
-      cerradoPor: detail?.commercialCase?.cerradoPor || '',
-      escaladoCloser: detail?.commercialCase?.escaladoCloser ?? false,
-      escaladoMotivo: detail?.commercialCase?.escaladoMotivo || '',
+    casoComercial: {
+      costoCotizado: detail?.casoComercial?.costoCotizado ?? lead?.quotedAmount ?? null,
+      promocionAplicada: detail?.casoComercial?.promocionAplicada || '',
+      objeciones: detail?.casoComercial?.objeciones || '',
+      indicacionSeguimiento: detail?.casoComercial?.indicacionSeguimiento || '',
+      proximaCitaSugerida: toDateTimeLocal(detail?.casoComercial?.proximaCitaSugerida || lead?.appointmentDate || ''),
+      estado: detail?.casoComercial?.estado || 'valorado',
+      montoCerrado: detail?.casoComercial?.montoCerrado ?? null,
+      cerradoPor: detail?.casoComercial?.cerradoPor || '',
     },
   }
 }
@@ -515,4 +556,28 @@ function labelForKioskStatus(status: KioskLeadStatus): string {
     default:
       return 'Pendiente'
   }
+}
+
+const ESTADO_OPTIONS: Array<{ value: CasoComercialEstado; label: string }> = [
+  { value: 'valorado', label: 'Valorado' },
+  { value: 'en_seguimiento', label: 'En seguimiento' },
+  { value: 'escalado_closer', label: 'Escalado a closer' },
+  { value: 'agendado', label: 'Agendado' },
+  { value: 'abono_recibido', label: 'Abono recibido' },
+  { value: 'perdido', label: 'Perdido' },
+]
+
+const CERRADO_POR_OPTIONS = [
+  { value: '', label: 'Selecciona' },
+  { value: 'doctor', label: 'Doctor' },
+  { value: 'closer_greenchimp', label: 'Closer GreenChimp' },
+  { value: 'automatico', label: 'Automático' },
+]
+
+function labelForEstado(value: CasoComercialEstado): string {
+  return ESTADO_OPTIONS.find((option) => option.value === value)?.label ?? value
+}
+
+function labelForCerradoPor(value: string): string {
+  return CERRADO_POR_OPTIONS.find((option) => option.value === value)?.label ?? 'No definido'
 }

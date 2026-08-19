@@ -1,16 +1,13 @@
 import { requireSupabase } from '../lib/supabase'
+import { canonicalMxPhoneKey, normalizeMexPhoneToE164 } from '../lib/phone'
 import type {
-  ClinicalRecord,
-  CommercialCase,
   CrmLead,
   CrmLeadComment,
-  CrmLeadDetail,
   CrmStage,
-  DentalLeadDetailUpdate,
   KioskFlow,
   KioskLeadStatus,
   LeadOrigin,
-  TraceabilityEvent,
+  TrazabilidadResponsable,
 } from '../types'
 
 export const AVAILABLE_COMPANIES = [
@@ -96,9 +93,6 @@ export const DENTAL_PIPELINE_FALLBACK: CrmStage[] = [
 
 export type RawLead = Record<string, unknown>
 export type RawCompanyMember = Record<string, unknown>
-type RawClinicalRecord = Record<string, unknown>
-type RawCommercialCase = Record<string, unknown>
-type RawTraceabilityEvent = Record<string, unknown>
 
 function resolveCompanyKey(value: string | undefined): CrmCompanyKey {
   return AVAILABLE_COMPANIES.some((company) => company.key === value)
@@ -165,6 +159,23 @@ function normalizeKioskStatus(...values: unknown[]): KioskLeadStatus {
   }
 }
 
+function normalizeKioskStatusFromEstadoConsulta(value: unknown): KioskLeadStatus {
+  const normalized = stringValue(value).toLowerCase()
+
+  switch (normalized) {
+    case 'en_espera':
+      return 'en_espera'
+    case 'en_consulta':
+      return 'en_consulta'
+    case 'finalizada':
+    case 'consulta_terminada':
+      return 'finalizada'
+    case 'sin_llegada':
+    default:
+      return 'pendiente'
+  }
+}
+
 function normalizeKioskFlow(value: unknown): KioskFlow {
   return stringValue(value) === 'sin_cita' ? 'sin_cita' : 'con_cita'
 }
@@ -198,61 +209,6 @@ function mapComment(value: unknown, index: number): CrmLeadComment {
     author: stringValue(row.author, row.autor) || 'Equipo',
     at: stringValue(row.at, row.timestamp, row.fecha) || new Date().toISOString(),
     text: stringValue(row.text, row.comment, row.comentario) || 'Sin comentario',
-  }
-}
-
-function mapClinicalRecord(row: RawClinicalRecord | null): ClinicalRecord | null {
-  if (!row) return null
-
-  return {
-    id: stringValue(row.id),
-    leadId: stringValue(row.lead_id),
-    companyKey: stringValue(row.company_key),
-    waId: stringValue(row.wa_id),
-    motivoConsulta: stringValue(row.motivo_consulta),
-    diagnostico: stringValue(row.diagnostico),
-    tratamientoPropuesto: stringValue(row.tratamiento_propuesto),
-    especialidad: stringValue(row.especialidad),
-    piezasInvolucradas: stringValue(row.piezas_involucradas),
-    notasEvolucion: stringValue(row.notas_evolucion),
-    archivosAdjuntos: safeArray<string>(row.archivos_adjuntos).map((item) => String(item)),
-    updatedAt: stringValue(row.updated_at, row.created_at),
-  }
-}
-
-function mapCommercialCase(row: RawCommercialCase | null): CommercialCase | null {
-  if (!row) return null
-
-  return {
-    id: stringValue(row.id),
-    leadId: stringValue(row.lead_id),
-    companyKey: stringValue(row.company_key),
-    waId: stringValue(row.wa_id),
-    costoCotizado: numberValue(row.costo_cotizado),
-    promocionAplicada: stringValue(row.promocion_aplicada),
-    objeciones: stringValue(row.objeciones),
-    indicacionSeguimiento: stringValue(row.indicacion_seguimiento),
-    proximaCitaSugerida: stringValue(row.proxima_cita_sugerida),
-    estado: stringValue(row.estado),
-    montoCerrado: numberValue(row.monto_cerrado),
-    cerradoPor: stringValue(row.cerrado_por),
-    escaladoCloser: Boolean(row.escalado_closer),
-    escaladoMotivo: stringValue(row.escalado_motivo),
-    updatedAt: stringValue(row.updated_at, row.created_at),
-  }
-}
-
-function mapTraceabilityEvent(row: RawTraceabilityEvent): TraceabilityEvent {
-  return {
-    id: stringValue(row.id),
-    caseId: stringValue(row.caso_comercial_id),
-    leadId: stringValue(row.lead_id),
-    companyKey: stringValue(row.company_key),
-    waId: stringValue(row.wa_id),
-    timestamp: stringValue(row.timestamp, row.created_at),
-    tipoEvento: stringValue(row.tipo_evento),
-    responsable: (stringValue(row.responsable) || 'sistema') as TraceabilityEvent['responsable'],
-    metadata: safeObject(row.metadata),
   }
 }
 
@@ -292,7 +248,17 @@ export function mapDentalLead(row: RawLead): CrmLead {
   )
   const appointmentConfirmed = Boolean(appointmentDate) && !isCancelledAppointmentValue(appointmentStatus) && isConfirmedAppointmentValue(appointmentStatus || 'pendiente')
   const arrivalAt = stringValue(row.llegada_kiosko_at, raw.arrival_at, raw.checked_in_at)
-  const kioskStatus = normalizeKioskStatus(row.kiosk_status, raw.kiosk_status, arrivalAt ? 'en_espera' : 'pendiente')
+  const consultaInicioAt = stringValue(row.consulta_inicio_at)
+  const consultaFinAt = stringValue(row.consulta_fin_at)
+  const relationalKioskStatus = stringValue(row.estado_consulta).toLowerCase()
+
+  const kioskStatus = relationalKioskStatus
+    ? normalizeKioskStatus(relationalKioskStatus)
+    : normalizeKioskStatus(
+        row.kiosk_status,
+        raw.kiosk_status,
+        arrivalAt ? 'en_espera' : 'pendiente',
+      )
   const kioskFlow = normalizeKioskFlow(raw.kiosk_flow ?? (appointmentConfirmed || appointmentDate ? 'con_cita' : 'sin_cita'))
 
   return {
@@ -320,6 +286,8 @@ export function mapDentalLead(row: RawLead): CrmLead {
     kioskStatus,
     kioskFlow,
     arrivalAt,
+    consultaInicioAt,
+    consultaFinAt,
     appointmentConfirmed,
     comments: safeArray(row.comments).map(mapComment),
     tags: safeArray<string>(row.tags).map((tag) => String(tag)),
@@ -447,123 +415,13 @@ export async function updateDentalLeadStage(params: {
     .single()
 
   if (error) throw error
-  return mapDentalLead(data as RawLead)
-}
-
-export async function getDentalLeadDetail(leadId: string, companyKey: CrmCompanyKey = DEFAULT_CRM_COMPANY_KEY): Promise<CrmLeadDetail> {
-  const client = requireSupabase()
-
-  const [clinicalResult, commercialResult, traceabilityResult] = await Promise.all([
-    client
-      .from(CRM_TABLES.clinicalRecords)
-      .select('*')
-      .eq('lead_id', leadId)
-      .eq('company_key', companyKey)
-      .maybeSingle(),
-    client
-      .from(CRM_TABLES.commercialCases)
-      .select('*')
-      .eq('lead_id', leadId)
-      .eq('company_key', companyKey)
-      .maybeSingle(),
-    client
-      .from(CRM_TABLES.traceability)
-      .select('*')
-      .eq('lead_id', leadId)
-      .eq('company_key', companyKey)
-      .order('timestamp', { ascending: false }),
-  ])
-
-  if (clinicalResult.error) throw clinicalResult.error
-  if (commercialResult.error) throw commercialResult.error
-  if (traceabilityResult.error) throw traceabilityResult.error
-
-  return {
-    clinicalRecord: mapClinicalRecord(clinicalResult.data as RawClinicalRecord | null),
-    commercialCase: mapCommercialCase(commercialResult.data as RawCommercialCase | null),
-    traceability: (traceabilityResult.data ?? []).map((row) => mapTraceabilityEvent(row as RawTraceabilityEvent)),
-  }
-}
-
-export async function updateDentalLeadDetail(lead: CrmLead, input: DentalLeadDetailUpdate): Promise<CrmLeadDetail> {
-  const client = requireSupabase()
-  const nextAppointmentDate = input.commercialCase.proximaCitaSugerida || lead.appointmentDate || null
-  const nextAppointmentStatus = nextAppointmentDate ? lead.appointmentStatus || 'cita_confirmada' : lead.appointmentStatus || null
-  const mergedRawPayload = {
-    ...lead.rawPayload,
-    motivo_consulta: input.clinicalRecord.motivoConsulta || null,
-    diagnostico: input.clinicalRecord.diagnostico || null,
-    tratamiento_propuesto: input.clinicalRecord.tratamientoPropuesto || null,
-    especialidad: input.clinicalRecord.especialidad || null,
-    piezas_involucradas: input.clinicalRecord.piezasInvolucradas || null,
-    notas_evolucion: input.clinicalRecord.notasEvolucion || null,
-    costo_cotizado: input.commercialCase.costoCotizado,
-    promocion_aplicada: input.commercialCase.promocionAplicada || null,
-    objeciones: input.commercialCase.objeciones || null,
-    indicacion_seguimiento: input.commercialCase.indicacionSeguimiento || null,
-    proxima_cita_sugerida: nextAppointmentDate,
-    fecha_cita: nextAppointmentDate,
-    status_cita: nextAppointmentStatus,
-    estado: input.commercialCase.estado || null,
-    monto_cerrado: input.commercialCase.montoCerrado,
-    cerrado_por: input.commercialCase.cerradoPor || null,
-    escalado_closer: input.commercialCase.escaladoCloser,
-    escalado_motivo: input.commercialCase.escaladoMotivo || null,
-  }
-
-  const clinicalPayload = {
-    lead_id: lead.id,
-    company_key: resolveCompanyKey(lead.companyKey),
-    wa_id: lead.waId || lead.phone || null,
-    motivo_consulta: input.clinicalRecord.motivoConsulta || null,
-    diagnostico: input.clinicalRecord.diagnostico || null,
-    tratamiento_propuesto: input.clinicalRecord.tratamientoPropuesto || null,
-    especialidad: input.clinicalRecord.especialidad || null,
-    piezas_involucradas: input.clinicalRecord.piezasInvolucradas || null,
-    notas_evolucion: input.clinicalRecord.notasEvolucion || null,
-    updated_at: new Date().toISOString(),
-  }
-
-  const commercialPayload = {
-    lead_id: lead.id,
-    company_key: resolveCompanyKey(lead.companyKey),
-    wa_id: lead.waId || lead.phone || null,
-    costo_cotizado: input.commercialCase.costoCotizado,
-    promocion_aplicada: input.commercialCase.promocionAplicada || null,
-    objeciones: input.commercialCase.objeciones || null,
-    indicacion_seguimiento: input.commercialCase.indicacionSeguimiento || null,
-    proxima_cita_sugerida: input.commercialCase.proximaCitaSugerida || null,
-    estado: input.commercialCase.estado || null,
-    monto_cerrado: input.commercialCase.montoCerrado,
-    cerrado_por: input.commercialCase.cerradoPor || null,
-    escalado_closer: input.commercialCase.escaladoCloser,
-    escalado_motivo: input.commercialCase.escaladoMotivo || null,
-    updated_at: new Date().toISOString(),
-  }
-
-  const [clinicalResult, commercialResult] = await Promise.all([
-    client.from(CRM_TABLES.clinicalRecords).upsert(clinicalPayload, { onConflict: 'lead_id' }),
-    client.from(CRM_TABLES.commercialCases).upsert(commercialPayload, { onConflict: 'lead_id' }),
-  ])
-
-  if (clinicalResult.error) throw clinicalResult.error
-  if (commercialResult.error) throw commercialResult.error
-
-  const { error: leadError } = await client
-    .from(CRM_TABLES.leads)
-    .update({
-      fecha_cita: nextAppointmentDate,
-      status_cita: nextAppointmentStatus,
-      nombre_paciente: lead.name || null,
-      whatsapp_phone: lead.phone || null,
-      raw_payload: mergedRawPayload,
-    })
-    .eq('id', lead.id)
-    .eq('company_key', resolveCompanyKey(lead.companyKey))
-
-  if (leadError) throw leadError
-
-  return getDentalLeadDetail(lead.id, resolveCompanyKey(lead.companyKey))
+  const savedLead = mapDentalLead(data as RawLead)
+  await logTraceabilityEvent({
+    lead: savedLead,
+    tipoEvento: `etapa kanban cambiada a ${params.stageKey}`,
+    responsable: 'sistema',
+  })
+  return savedLead
 }
 
 export async function syncDentalLeadAppointment(params: {
@@ -612,31 +470,195 @@ export async function updateDentalLeadKioskState(params: {
   arrivalAt?: string
 }): Promise<CrmLead> {
   const client = requireSupabase()
-  const companyKey = params.companyKey ?? resolveCompanyKey(params.lead.companyKey)
-  const arrivalAt = params.arrivalAt ?? params.lead.arrivalAt ?? new Date().toISOString()
+  const companyKey =
+    params.companyKey ?? resolveCompanyKey(params.lead.companyKey)
+
+  const now = new Date().toISOString()
+  const arrivalAt =
+    params.arrivalAt || params.lead.arrivalAt || now
+
+  const databaseStatus =
+    params.kioskStatus === 'pendiente'
+      ? 'sin_llegada'
+      : params.kioskStatus
+
   const rawPayload = {
     ...params.lead.rawPayload,
     kiosk_status: params.kioskStatus,
     kiosk_flow: params.kioskFlow ?? params.lead.kioskFlow,
-    arrival_at: params.kioskStatus === 'pendiente' ? null : arrivalAt,
-    last_kiosk_update_at: new Date().toISOString(),
+    arrival_at:
+      params.kioskStatus === 'pendiente'
+        ? null
+        : arrivalAt,
+    last_kiosk_update_at: now,
   }
-  const llegadaKioskoAt = params.kioskStatus === 'pendiente' ? null : arrivalAt
+
+  const updatePayload: Record<string, unknown> = {
+    estado_consulta: databaseStatus,
+    llegada_kiosko_at:
+      params.kioskStatus === 'pendiente'
+        ? null
+        : arrivalAt,
+    raw_payload: rawPayload,
+    status_cita: params.lead.appointmentStatus || null,
+    updated_at: now,
+  }
+
+  switch (params.kioskStatus) {
+    case 'pendiente':
+      updatePayload.consulta_inicio_at = null
+      updatePayload.consulta_fin_at = null
+      break
+
+    case 'en_espera':
+      updatePayload.consulta_inicio_at = null
+      updatePayload.consulta_fin_at = null
+      break
+
+    case 'en_consulta':
+      if (params.lead.kioskStatus !== 'en_consulta') {
+        updatePayload.consulta_inicio_at = now
+      }
+
+      updatePayload.consulta_fin_at = null
+      break
+
+    case 'finalizada':
+      if (params.lead.kioskStatus !== 'finalizada') {
+        updatePayload.consulta_fin_at = now
+      }
+      break
+  }
 
   const { data, error } = await client
     .from(CRM_TABLES.leads)
-    .update({
-      llegada_kiosko_at: llegadaKioskoAt,
-      raw_payload: rawPayload,
-      status_cita: params.lead.appointmentStatus || null,
-    })
+    .update(updatePayload)
     .eq('id', params.lead.id)
     .eq('company_key', companyKey)
     .select('*')
     .single()
 
   if (error) throw error
+
   return mapDentalLead(data as RawLead)
+}
+
+export async function callNextWaitingPatient(params: {
+  companyKey?: CrmCompanyKey
+  mode: 'automatico' | 'manual'
+}): Promise<CrmLead | null> {
+  const client = requireSupabase()
+  const companyKey = params.companyKey ?? DEFAULT_CRM_COMPANY_KEY
+  const { data, error } = await client.rpc('llamar_siguiente_paciente', {
+    p_company_key: companyKey,
+  })
+
+  if (error) throw error
+
+  const row = Array.isArray(data) ? data[0] : null
+  if (!row) return null
+
+  const lead = mapDentalLead(row as RawLead)
+  await logTraceabilityEvent({
+    lead,
+    tipoEvento: params.mode === 'automatico' ? 'llamado automatico' : 'llamado manual',
+    responsable: 'sistema',
+  })
+
+  return lead
+}
+
+export async function finalizeCurrentConsultation(params: {
+  companyKey?: CrmCompanyKey
+  mode: 'automatico' | 'manual' | 'telegram'
+}): Promise<{
+  finalizedLead: CrmLead | null
+  calledNextLead: CrmLead | null
+}> {
+  const client = requireSupabase()
+  const companyKey = params.companyKey ?? DEFAULT_CRM_COMPANY_KEY
+  const { data, error } = await client.rpc('finalizar_consulta_actual', {
+    p_company_key: companyKey,
+  })
+
+  if (error) throw error
+
+  const row = Array.isArray(data) ? data[0] : null
+  const finalizedId = stringValue(row?.finalized_id)
+  const finalizedWaId = stringValue(row?.finalized_wa_id)
+  const calledNextId = stringValue(row?.called_next_id)
+  const calledNextWaId = stringValue(row?.called_next_wa_id)
+
+  const finalizedLead = finalizedId ? await getLeadById(finalizedId, companyKey) : null
+  const calledNextLead = calledNextId ? await getLeadById(calledNextId, companyKey) : null
+
+  if (finalizedLead ?? finalizedWaId) {
+    await logTraceabilityEvent({
+      lead: finalizedLead ?? { id: finalizedId, waId: finalizedWaId, companyKey },
+      tipoEvento: 'consulta finalizada',
+      responsable: 'sistema',
+    })
+  }
+
+  if (calledNextLead ?? calledNextWaId) {
+    await logTraceabilityEvent({
+      lead: calledNextLead ?? { id: calledNextId, waId: calledNextWaId, companyKey },
+      tipoEvento: params.mode === 'manual' ? 'llamado manual' : 'llamado automatico',
+      responsable: 'sistema',
+    })
+  }
+
+  return {
+    finalizedLead,
+    calledNextLead,
+  }
+}
+
+export async function finalizeConsultationByLead(params: {
+  leadId: string
+  companyKey?: CrmCompanyKey
+  mode: 'manual' | 'telegram'
+}): Promise<{
+  finalizedLead: CrmLead | null
+  calledNextLead: CrmLead | null
+}> {
+  const client = requireSupabase()
+  const companyKey = params.companyKey ?? DEFAULT_CRM_COMPANY_KEY
+  const { data, error } = await client.rpc('finalizar_consulta_por_lead', {
+    p_lead_id: params.leadId,
+  })
+
+  if (error) throw error
+
+  const row = Array.isArray(data) ? data[0] : null
+  const finalizedId = stringValue(row?.finalized_id)
+  const finalizedWaId = stringValue(row?.finalized_wa_id)
+  const calledNextId = stringValue(row?.called_next_id)
+  const calledNextWaId = stringValue(row?.called_next_wa_id)
+
+  const finalizedLead = finalizedId ? await getLeadById(finalizedId, companyKey) : null
+  const calledNextLead = calledNextId ? await getLeadById(calledNextId, companyKey) : null
+
+  if (finalizedLead ?? finalizedWaId) {
+    await logTraceabilityEvent({
+      lead: finalizedLead ?? { id: finalizedId, waId: finalizedWaId, companyKey },
+      tipoEvento: 'consulta finalizada',
+      responsable: 'sistema',
+    })
+  }
+
+  if (calledNextLead ?? calledNextWaId) {
+    await logTraceabilityEvent({
+      lead: calledNextLead ?? { id: calledNextId, waId: calledNextWaId, companyKey },
+      tipoEvento: params.mode === 'manual' ? 'llamado manual' : 'llamado automatico',
+      responsable: 'sistema',
+    })
+  }
+
+  return {
+    finalizedLead,
+    calledNextLead,
+  }
 }
 
 export async function createDentalWalkInLead(params: {
@@ -648,11 +670,15 @@ export async function createDentalWalkInLead(params: {
   const now = new Date().toISOString()
   const companyKey = params.companyKey ?? DEFAULT_CRM_COMPANY_KEY
   const digits = params.phone.replace(/\D/g, '')
+  if (!digits) {
+    throw new Error('El teléfono debe contener números.')
+  }
+  const phoneE164 = normalizeMexPhoneToE164(params.phone)
+  const canonicalPhone = canonicalMxPhoneKey(params.phone)
   const rawPayload = {
-    telefono: digits,
+    telefono: phoneE164 || canonicalPhone,
     nombre_paciente: params.name,
     origen_lead: 'walkin_sin_cita',
-    kiosk_status: 'en_espera',
     kiosk_flow: 'sin_cita',
     arrival_at: now,
     last_kiosk_update_at: now,
@@ -662,9 +688,11 @@ export async function createDentalWalkInLead(params: {
     .from(CRM_TABLES.leads)
     .insert({
       company_key: companyKey,
+      subscriber_id: digits,
       nombre_paciente: params.name,
-      whatsapp_phone: digits || null,
-      wa_id: digits || null,
+      whatsapp_phone: phoneE164 || canonicalPhone || null,
+      wa_id: phoneE164 || canonicalPhone || null,
+      estado_consulta: 'en_espera',
       llegada_kiosko_at: now,
       origen_lead: 'walkin_sin_cita',
       source: 'Kiosko',
@@ -676,5 +704,92 @@ export async function createDentalWalkInLead(params: {
     .single()
 
   if (error) throw error
-  return mapDentalLead(data as RawLead)
+  const createdLead = mapDentalLead(data as RawLead)
+  await logTraceabilityEvent({
+    lead: createdLead,
+    tipoEvento: 'lead creado via kiosko',
+    responsable: 'sistema',
+  })
+  return createdLead
+}
+
+async function getLeadById(leadId: string, companyKey: CrmCompanyKey): Promise<CrmLead | null> {
+  const client = requireSupabase()
+  const { data, error } = await client
+    .from(CRM_TABLES.leads)
+    .select('*')
+    .eq('id', leadId)
+    .eq('company_key', companyKey)
+    .maybeSingle()
+
+  if (error) throw error
+  return data ? mapDentalLead(data as RawLead) : null
+}
+
+export async function ensureCasoComercialForLead(lead: Pick<CrmLead, 'id' | 'waId' | 'companyKey'>): Promise<string> {
+  if (!lead.waId) {
+    throw new Error('No pudimos registrar trazabilidad porque el lead no tiene wa_id.')
+  }
+
+  const client = requireSupabase()
+  const companyKey = resolveCompanyKey(lead.companyKey)
+
+  const { data: leadRow, error: leadError } = await client
+    .from(CRM_TABLES.leads)
+    .select('id')
+    .eq('company_key', companyKey)
+    .eq('wa_id', lead.waId)
+    .maybeSingle()
+
+  if (leadError) throw leadError
+  if (!leadRow) {
+    throw new Error('No encontramos el lead de esta clínica para registrar trazabilidad.')
+  }
+
+  const { data: existingCase, error: existingError } = await client
+    .from(CRM_TABLES.commercialCases)
+    .select('caso_comercial_id')
+    .eq('wa_id', lead.waId)
+    .maybeSingle()
+
+  if (existingError) throw existingError
+  if (existingCase?.caso_comercial_id) return String(existingCase.caso_comercial_id)
+
+  const { data: createdCase, error: createError } = await client
+    .from(CRM_TABLES.commercialCases)
+    .insert({
+      wa_id: lead.waId,
+      estado: 'valorado',
+    })
+    .select('caso_comercial_id')
+    .single()
+
+  if (createError) throw createError
+  return String(createdCase.caso_comercial_id)
+}
+
+export async function logTraceabilityEvent(params: {
+  lead: Pick<CrmLead, 'id' | 'waId' | 'companyKey'>
+  tipoEvento: string
+  responsable: TrazabilidadResponsable
+}): Promise<void> {
+  if (!params.lead.waId) return
+
+  const client = requireSupabase()
+  const casoComercialId = await ensureCasoComercialForLead(params.lead)
+  const companyKey = resolveCompanyKey(params.lead.companyKey)
+
+  const { error } = await client
+    .from(CRM_TABLES.traceability)
+    .insert({
+      caso_comercial_id: casoComercialId,
+      lead_id: params.lead.id,
+      company_key: companyKey,
+      wa_id: params.lead.waId,
+      timestamp: new Date().toISOString(),
+      tipo_evento: params.tipoEvento,
+      responsable: params.responsable,
+    })
+
+  if (error) throw error
 }

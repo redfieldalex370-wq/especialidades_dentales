@@ -1,21 +1,26 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Sidebar, type ViewKey } from './components/Sidebar'
 import { AutomationView } from './views/AutomationView'
 import { DashboardView } from './views/DashboardView'
 import { PatientView } from './views/PatientView'
 import { WaitingRoomView } from './views/WaitingRoomView'
 import type { CalendarAppointment, CrmLead, CrmLeadDetail, CrmStage, DentalLeadDetailUpdate, KioskFlow, KioskLeadStatus } from './types'
+import { supabase } from './lib/supabase'
 import {
+  callNextWaitingPatient,
   createDentalWalkInLead,
   DENTAL_PIPELINE_FALLBACK,
-  getDentalLeadDetail,
+  finalizeConsultationByLead,
   getDentalPipelineStages,
   listDentalCrmLeads,
-  updateDentalLeadDetail,
+  syncDentalLeadAppointment,
   updateDentalLeadKioskState,
   updateDentalLeadStage,
 } from './services/crm'
+import { canonicalMxPhoneKey } from './lib/phone'
+import { getDentalLeadDetail, updateDentalLeadDetail } from './services/fichas'
 import {
+  createCalendarAppointment,
   isGoogleCalendarConfigured,
   listCalendarAppointments,
 } from './services/googleCalendar'
@@ -37,6 +42,10 @@ export default function App() {
   const [calendarAppointments, setCalendarAppointments] = useState<CalendarAppointment[]>([])
   const [calendarLoading, setCalendarLoading] = useState(false)
   const [calendarError, setCalendarError] = useState('')
+  const selectedLeadIdRef = useRef('')
+  const processedRealtimeEventRef = useRef<Set<string>>(new Set())
+
+  selectedLeadIdRef.current = selectedLeadId
 
   async function loadLeadDetail(leadId: string) {
     setLeadDetailLoading(true)
@@ -116,6 +125,44 @@ export default function App() {
 
     return () => window.clearInterval(timer)
   }, [selectedLeadId, crmLeads])
+
+  useEffect(() => {
+    if (!supabase) return
+    const realtimeClient = supabase
+
+    const channel = realtimeClient
+      .channel('crm-leads-realtime-especialidades-dentales')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'crm_leads',
+          filter: `company_key=eq.${companyKey}`,
+        },
+        (payload) => {
+          const nextRow = (payload.new ?? {}) as Record<string, unknown>
+          const previousRow = (payload.old ?? {}) as Record<string, unknown>
+          const eventKey = `${payload.commit_timestamp}:${payload.eventType}:${String(nextRow.id ?? previousRow.id ?? '')}:${String(nextRow.estado_consulta ?? '')}`
+          if (processedRealtimeEventRef.current.has(eventKey)) return
+          processedRealtimeEventRef.current.add(eventKey)
+          if (processedRealtimeEventRef.current.size > 200) {
+            const firstKey = processedRealtimeEventRef.current.values().next().value
+            if (firstKey) processedRealtimeEventRef.current.delete(firstKey)
+          }
+
+          void loadCrm()
+          if (selectedLeadIdRef.current) {
+            void loadLeadDetail(selectedLeadIdRef.current)
+          }
+        },
+      )
+      .subscribe()
+
+    return () => {
+      void realtimeClient.removeChannel(channel)
+    }
+  }, [companyKey])
 
   const selectedLead = useMemo(
     () => crmLeads.find((lead) => lead.id === selectedLeadId) ?? null,
@@ -215,29 +262,103 @@ export default function App() {
     }
   }
 
-  async function handleRegisterWalkIn(name: string, phone: string) {
-    const digits = phone.replace(/\D/g, '')
+  async function handleCallNextPatient(mode: 'automatico' | 'manual') {
+    const selected = await callNextWaitingPatient({
+      companyKey,
+      mode,
+    })
+
+    await loadCrm()
+
+    if (selectedLeadIdRef.current) {
+      await loadLeadDetail(selectedLeadIdRef.current)
+    }
+
+    return selected
+  }
+
+  async function handleFinalizeConsultationByLead(leadId: string, mode: 'manual' | 'telegram') {
+    const result = await finalizeConsultationByLead({
+      leadId,
+      companyKey,
+      mode,
+    })
+
+    await loadCrm()
+
+    if (selectedLeadIdRef.current) {
+      await loadLeadDetail(selectedLeadIdRef.current)
+    }
+
+    return result
+  }
+
+  async function handleRegisterWalkIn(
+    name: string,
+    phone: string,
+    appointmentType?: 'valoracion' | 'limpieza',
+    appointmentStart?: string,
+  ) {
+    const phoneKey = canonicalMxPhoneKey(phone)
     const existing = crmLeads.find((item) => {
-      const haystack = `${item.phone} ${item.waId}`.replace(/\D/g, '')
-      return digits && haystack.includes(digits)
+      return [item.phone, item.waId, item.subscriberId].some((value) => canonicalMxPhoneKey(value) === phoneKey)
     })
 
     if (existing) {
-      const saved = await updateDentalLeadKioskState({
+      let saved = await updateDentalLeadKioskState({
         lead: existing,
         companyKey,
         kioskStatus: 'en_espera',
         kioskFlow: 'sin_cita',
       })
+
+      if (appointmentType && appointmentStart && isGoogleCalendarConfigured) {
+        const end = addMinutesToIso(appointmentStart, 30)
+        const calendarEvent = await createCalendarAppointment({
+          lead: saved,
+          start: appointmentStart,
+          end,
+          appointmentType,
+        })
+
+        saved = await syncDentalLeadAppointment({
+          lead: saved,
+          appointmentDate: calendarEvent.start,
+          appointmentStatus: 'CITA_CONFIRMADA',
+          appointmentType: appointmentType === 'limpieza' ? 'Limpieza dental' : 'Valoración dental',
+          calendarEventId: calendarEvent.id,
+          notes: calendarEvent.description,
+        })
+      }
+
       setCrmLeads((current) => current.map((item) => (item.id === existing.id ? saved : item)))
       return saved
     }
 
-    const created = await createDentalWalkInLead({
+    let created = await createDentalWalkInLead({
       companyKey,
       name,
       phone,
     })
+
+    if (appointmentType && appointmentStart && isGoogleCalendarConfigured) {
+      const end = addMinutesToIso(appointmentStart, 30)
+      const calendarEvent = await createCalendarAppointment({
+        lead: created,
+        start: appointmentStart,
+        end,
+        appointmentType,
+      })
+
+      created = await syncDentalLeadAppointment({
+        lead: created,
+        appointmentDate: calendarEvent.start,
+        appointmentStatus: 'CITA_CONFIRMADA',
+        appointmentType: appointmentType === 'limpieza' ? 'Limpieza dental' : 'Valoración dental',
+        calendarEventId: calendarEvent.id,
+        notes: calendarEvent.description,
+      })
+    }
 
     setCrmLeads((current) => [created, ...current])
     return created
@@ -295,6 +416,8 @@ export default function App() {
               onOpenLead={openLead}
               onRegisterWalkIn={handleRegisterWalkIn}
               onUpdateLeadStatus={handleUpdateKioskStatus}
+              onCallNextPatient={handleCallNextPatient}
+              onFinalizeConsultationByLead={handleFinalizeConsultationByLead}
             />
           )}
           {view === 'patient' && (
@@ -307,11 +430,19 @@ export default function App() {
               onOpenLead={openLead}
               onSaveDetail={handleSaveLeadDetail}
               onUpdateKioskStatus={handleUpdateKioskStatus}
+              onCallNextPatient={handleCallNextPatient}
+              onFinalizeConsultationByLead={handleFinalizeConsultationByLead}
             />
           )}
-          {view === 'automation' && <AutomationView />}
+          {view === 'automation' && <AutomationView leads={crmLeads} onOpenLead={openLead} />}
         </div>
       </main>
     </div>
   )
+}
+
+function addMinutesToIso(value: string, minutes: number) {
+  const date = new Date(value)
+  date.setMinutes(date.getMinutes() + minutes)
+  return date.toISOString()
 }
