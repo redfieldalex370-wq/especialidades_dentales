@@ -6,6 +6,13 @@ on:
       - main
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-hostinger-production
+  cancel-in-progress: true
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -30,21 +37,31 @@ jobs:
           VITE_N8N_SCHEDULER_URL: ${{ secrets.VITE_N8N_SCHEDULER_URL }}
         run: npm run build
 
-      - name: Install sshpass
-        run: sudo apt-get update && sudo apt-get install -y sshpass
+      - name: Configure SSH key
+        env:
+          HOSTINGER_HOST: ${{ secrets.HOSTINGER_HOST }}
+          HOSTINGER_PORT: ${{ secrets.HOSTINGER_PORT }}
+          HOSTINGER_SSH_PRIVATE_KEY: ${{ secrets.HOSTINGER_SSH_PRIVATE_KEY }}
+        run: |
+          test -n "$HOSTINGER_HOST"
+          test -n "$HOSTINGER_PORT"
+          test -n "$HOSTINGER_SSH_PRIVATE_KEY"
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$HOSTINGER_SSH_PRIVATE_KEY" > "$HOME/.ssh/hostinger_ed25519"
+          chmod 600 "$HOME/.ssh/hostinger_ed25519"
+          ssh-keyscan -p "$HOSTINGER_PORT" -H "$HOSTINGER_HOST" >> "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
 
       - name: Upload build to Hostinger
         env:
           HOSTINGER_HOST: ${{ secrets.HOSTINGER_HOST }}
           HOSTINGER_PORT: ${{ secrets.HOSTINGER_PORT }}
           HOSTINGER_USERNAME: ${{ secrets.HOSTINGER_USERNAME }}
-          HOSTINGER_PASSWORD: ${{ secrets.HOSTINGER_PASSWORD }}
           HOSTINGER_TARGET_DIR: ${{ secrets.HOSTINGER_TARGET_DIR }}
         run: |
           test -n "$HOSTINGER_HOST"
           test -n "$HOSTINGER_PORT"
           test -n "$HOSTINGER_USERNAME"
-          test -n "$HOSTINGER_PASSWORD"
           test -n "$HOSTINGER_TARGET_DIR"
-          sshpass -p "$HOSTINGER_PASSWORD" ssh -p "$HOSTINGER_PORT" -o StrictHostKeyChecking=no "$HOSTINGER_USERNAME@$HOSTINGER_HOST" "mkdir -p '$HOSTINGER_TARGET_DIR'"
-          sshpass -p "$HOSTINGER_PASSWORD" rsync -avz --delete -e "ssh -p $HOSTINGER_PORT -o StrictHostKeyChecking=no" dist/ "$HOSTINGER_USERNAME@$HOSTINGER_HOST:$HOSTINGER_TARGET_DIR/"
+          ssh -i "$HOME/.ssh/hostinger_ed25519" -p "$HOSTINGER_PORT" "$HOSTINGER_USERNAME@$HOSTINGER_HOST" "test -d '$HOSTINGER_TARGET_DIR'"
+          rsync -avz --delete --exclude=".htaccess" --exclude=".well-known/" -e "ssh -i $HOME/.ssh/hostinger_ed25519 -p $HOSTINGER_PORT" dist/ "$HOSTINGER_USERNAME@$HOSTINGER_HOST:$HOSTINGER_TARGET_DIR/"
