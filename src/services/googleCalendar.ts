@@ -28,6 +28,7 @@ interface GoogleCalendarResponse {
 
 interface CalendarAppointmentInput {
   lead: CrmLead
+  patientName?: string
   start: string
   end: string
   appointmentType: 'valoracion' | 'limpieza'
@@ -122,7 +123,7 @@ export async function connectGoogleCalendar(): Promise<void> {
 }
 
 export async function createCalendarAppointment(input: CalendarAppointmentInput): Promise<CalendarAppointment> {
-  const title = buildAppointmentTitle(input.appointmentType, input.lead.name)
+  const title = buildAppointmentTitle(input.appointmentType, input.patientName?.trim() || input.lead.name)
   const description = buildCalendarDescription(input.lead, input.notes)
   const payload = await invokeCalendarWriter({
     operation: 'create',
@@ -136,7 +137,7 @@ export async function createCalendarAppointment(input: CalendarAppointmentInput)
 }
 
 export async function updateCalendarAppointment(eventId: string, input: CalendarAppointmentInput): Promise<CalendarAppointment> {
-  const title = buildAppointmentTitle(input.appointmentType, input.lead.name)
+  const title = buildAppointmentTitle(input.appointmentType, input.patientName?.trim() || input.lead.name)
   const description = buildCalendarDescription(input.lead, input.notes)
   const payload = await invokeCalendarWriter({
     operation: 'update',

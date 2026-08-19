@@ -431,6 +431,7 @@ export async function syncDentalLeadAppointment(params: {
   appointmentType: string
   calendarEventId?: string
   notes?: string
+  patientName?: string
 }): Promise<CrmLead> {
   const client = requireSupabase()
   const companyKey = resolveCompanyKey(params.lead.companyKey)
@@ -448,6 +449,7 @@ export async function syncDentalLeadAppointment(params: {
   const { data, error } = await client
     .from(CRM_TABLES.leads)
     .update({
+      ...(params.patientName?.trim() ? { nombre_paciente: params.patientName.trim() } : {}),
       fecha_cita: params.appointmentDate || null,
       status_cita: params.appointmentStatus || null,
       raw_payload: rawPayload,

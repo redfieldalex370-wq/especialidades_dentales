@@ -390,6 +390,7 @@ export default function App() {
         const end = addMinutesToIso(appointmentStart, 30)
         const calendarEvent = await createCalendarAppointment({
           lead: saved,
+          patientName: name,
           start: appointmentStart,
           end,
           appointmentType,
@@ -402,6 +403,7 @@ export default function App() {
           appointmentType: appointmentType === 'limpieza' ? 'Limpieza dental' : 'Valoración dental',
           calendarEventId: calendarEvent.id,
           notes: calendarEvent.description,
+          patientName: name,
         })
       }
 
@@ -419,6 +421,7 @@ export default function App() {
       const end = addMinutesToIso(appointmentStart, 30)
       const calendarEvent = await createCalendarAppointment({
         lead: created,
+        patientName: name,
         start: appointmentStart,
         end,
         appointmentType,
@@ -431,6 +434,7 @@ export default function App() {
         appointmentType: appointmentType === 'limpieza' ? 'Limpieza dental' : 'Valoración dental',
         calendarEventId: calendarEvent.id,
         notes: calendarEvent.description,
+        patientName: name,
       })
     }
 
