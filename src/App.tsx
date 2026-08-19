@@ -319,7 +319,6 @@ export default function App() {
           start: appointmentStart,
           end,
           appointmentType,
-          notes: buildCalendarNotes(saved),
         })
 
         saved = await syncDentalLeadAppointment({
@@ -349,7 +348,6 @@ export default function App() {
         start: appointmentStart,
         end,
         appointmentType,
-        notes: buildCalendarNotes(created),
       })
 
       created = await syncDentalLeadAppointment({
@@ -447,15 +445,4 @@ function addMinutesToIso(value: string, minutes: number) {
   const date = new Date(value)
   date.setMinutes(date.getMinutes() + minutes)
   return date.toISOString()
-}
-
-function buildCalendarNotes(lead: CrmLead) {
-  return [
-    `Teléfono: ${lead.phone || lead.waId || ''}`,
-    `wa_id: ${lead.waId || ''}`,
-    `subscriber_id: ${lead.subscriberId || ''}`,
-    `lead_id: ${lead.id}`,
-  ]
-    .filter(Boolean)
-    .join('\n')
 }

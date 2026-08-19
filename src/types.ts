@@ -178,6 +178,7 @@ export interface CalendarAppointment {
   location: string
   patientName: string
   matchedLeadId: string
+  matchMethod: 'crm_lead_id' | 'subscriber_id' | 'wa_id' | 'phone' | 'name' | 'none'
   source: 'google_calendar'
 }
 

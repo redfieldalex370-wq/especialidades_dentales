@@ -56,6 +56,18 @@ interface CalendarAppointmentInput {
   notes?: string
 }
 
+interface CalendarIdentifiers {
+  phone: string
+  subscriberId: string
+  waId: string
+  crmLeadId: string
+}
+
+type MatchResult = {
+  lead: CrmLead | null
+  matchMethod: CalendarAppointment['matchMethod']
+}
+
 export async function listCalendarAppointments(leads: CrmLead[], options?: { daysAhead?: number }): Promise<CalendarAppointment[]> {
   if (!isGoogleCalendarConfigured) return []
 
@@ -96,7 +108,7 @@ function mapCalendarEvent(item: GoogleCalendarEvent, leads: CrmLead[]): Calendar
   if (!isAllowedDentalAppointment(title, item.description?.trim() ?? '')) return null
 
   const patientName = extractPatientName(title)
-  const matchedLead = findMatchingLead({
+  const match = findMatchingLead({
     patientName,
     title,
     description: item.description?.trim() ?? '',
@@ -112,7 +124,8 @@ function mapCalendarEvent(item: GoogleCalendarEvent, leads: CrmLead[]): Calendar
     status: item.status?.trim() ?? 'confirmed',
     location: item.location?.trim() ?? '',
     patientName,
-    matchedLeadId: matchedLead?.id ?? '',
+    matchedLeadId: match.lead?.id ?? '',
+    matchMethod: match.matchMethod,
     source: 'google_calendar',
   }
 }
@@ -124,6 +137,7 @@ export async function connectGoogleCalendar(): Promise<void> {
 export async function createCalendarAppointment(input: CalendarAppointmentInput): Promise<CalendarAppointment> {
   const token = await withCalendarToken()
   const title = buildAppointmentTitle(input.appointmentType, input.lead.name)
+  const description = buildCalendarDescription(input.lead, input.notes)
   const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId!)}/events`, {
     method: 'POST',
     headers: {
@@ -132,7 +146,7 @@ export async function createCalendarAppointment(input: CalendarAppointmentInput)
     },
     body: JSON.stringify({
       summary: title,
-      description: input.notes?.trim() || '',
+      description,
       start: { dateTime: input.start },
       end: { dateTime: input.end },
     }),
@@ -149,6 +163,7 @@ export async function createCalendarAppointment(input: CalendarAppointmentInput)
 export async function updateCalendarAppointment(eventId: string, input: CalendarAppointmentInput): Promise<CalendarAppointment> {
   const token = await withCalendarToken()
   const title = buildAppointmentTitle(input.appointmentType, input.lead.name)
+  const description = buildCalendarDescription(input.lead, input.notes)
   const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId!)}/events/${encodeURIComponent(eventId)}`, {
     method: 'PUT',
     headers: {
@@ -157,7 +172,7 @@ export async function updateCalendarAppointment(eventId: string, input: Calendar
     },
     body: JSON.stringify({
       summary: title,
-      description: input.notes?.trim() || '',
+      description,
       start: { dateTime: input.start },
       end: { dateTime: input.end },
     }),
@@ -216,46 +231,72 @@ function findMatchingLead({
   title: string
   description: string
   leads: CrmLead[]
-}): CrmLead | null {
-  const explicitIdentifier = extractLeadIdentifier(`${title}\n${description}`)
-  if (explicitIdentifier) {
-    const matchedById = leads.find((lead) =>
-      [lead.waId, lead.phone, lead.subscriberId].some((value) => normalizeIdentifier(value) === explicitIdentifier),
-    )
-    if (matchedById) return matchedById
+}): MatchResult {
+  const identifiers = extractCalendarIdentifiers(description, title)
+
+  if (identifiers.crmLeadId) {
+    const matchedByLeadId = leads.find((lead) => normalizeIdentifier(lead.id) === identifiers.crmLeadId) ?? null
+    if (matchedByLeadId) return { lead: matchedByLeadId, matchMethod: 'crm_lead_id' }
   }
 
-  const explicitPhoneKey = extractPhoneFromText(`${title}\n${description}`)
-  if (explicitPhoneKey) {
+  if (identifiers.subscriberId) {
+    const matchedBySubscriber = leads.find((lead) => normalizeIdentifier(lead.subscriberId) === identifiers.subscriberId) ?? null
+    if (matchedBySubscriber) return { lead: matchedBySubscriber, matchMethod: 'subscriber_id' }
+  }
+
+  if (identifiers.waId) {
+    const matchedByWaId = leads.find((lead) => normalizeIdentifier(lead.waId) === identifiers.waId) ?? null
+    if (matchedByWaId) return { lead: matchedByWaId, matchMethod: 'wa_id' }
+  }
+
+  if (identifiers.phone) {
     const matchedByPhone = leads.find((lead) =>
-      phonesMatchMx(lead.phone, explicitPhoneKey) ||
-      phonesMatchMx(lead.waId, explicitPhoneKey) ||
-      phonesMatchMx(lead.subscriberId, explicitPhoneKey),
-    )
-    if (matchedByPhone) return matchedByPhone
+      phonesMatchMx(lead.phone, identifiers.phone) ||
+      phonesMatchMx(lead.waId, identifiers.phone),
+    ) ?? null
+    if (matchedByPhone) return { lead: matchedByPhone, matchMethod: 'phone' }
   }
 
   const target = normalizeText(patientName)
-  if (!target) return null
+  if (!target) return { lead: null, matchMethod: 'none' }
 
-  return leads.find((lead) => {
-    const leadName = normalizeText(lead.name)
-    return leadName === target || leadName.includes(target) || target.includes(leadName)
-  }) ?? null
+  const exactMatches = leads.filter((lead) => normalizeText(lead.name) === target)
+  if (exactMatches.length === 1) {
+    return { lead: exactMatches[0], matchMethod: 'name' }
+  }
+
+  return { lead: null, matchMethod: 'none' }
 }
 
-function extractPhoneFromText(value: string): string {
-  const matches = value.match(/\+?\d[\d\s\-()]{8,}\d/g) ?? []
-  for (const match of matches) {
-    const key = canonicalMxPhoneKey(match)
-    if (key.length === 10) return key
+function extractCalendarIdentifiers(primaryText: string, fallbackText: string): CalendarIdentifiers {
+  const source = `${primaryText}\n${fallbackText}`.trim()
+  const phone = extractByPatterns(source, [
+    /(?:el\s+telefono\s+del\s+paciente|telefono|tel[eé]fono|whatsapp)\s*:\s*([+\d][\d\s\-()]+)/i,
+  ])
+  const subscriberId = extractByPatterns(source, [
+    /(?:manychat\s*id|subscriber\s*id|subscriber_id)\s*:\s*([a-z0-9_-]+)/i,
+  ])
+  const waId = extractByPatterns(source, [
+    /(?:wa\s*id|wa_id)\s*:\s*([a-z0-9+_-]+)/i,
+  ])
+  const crmLeadId = extractByPatterns(source, [
+    /(?:crm\s*lead\s*id|lead\s*id)\s*:\s*([0-9a-f-]{36})/i,
+  ])
+
+  return {
+    phone: canonicalMxPhoneKey(phone),
+    subscriberId: normalizeIdentifier(subscriberId),
+    waId: normalizeIdentifier(waId),
+    crmLeadId: normalizeIdentifier(crmLeadId),
+  }
+}
+
+function extractByPatterns(value: string, patterns: RegExp[]): string {
+  for (const pattern of patterns) {
+    const match = value.match(pattern)
+    if (match?.[1]) return match[1].trim()
   }
   return ''
-}
-
-function extractLeadIdentifier(value: string): string {
-  const identifierMatch = value.match(/\b(?:wa[_\s-]?id|subscriber[_\s-]?id|lead[_\s-]?id)\s*[:#-]?\s*([a-z0-9+\-]+)/i)
-  return identifierMatch ? normalizeIdentifier(identifierMatch[1]) : ''
 }
 
 function normalizeIdentifier(value: string): string {
@@ -299,12 +340,42 @@ function fallbackCalendarAppointment(item: GoogleCalendarEvent, lead: CrmLead): 
     location: item.location?.trim() ?? '',
     patientName: lead.name,
     matchedLeadId: lead.id,
+    matchMethod: 'crm_lead_id',
     source: 'google_calendar',
   }
 }
 
 function buildAppointmentTitle(type: 'valoracion' | 'limpieza', patientName: string) {
   return `${type === 'limpieza' ? 'Limpieza dental' : 'Valoración dental'} - ${patientName}`
+}
+
+export function buildCalendarDescription(lead: CrmLead, notes?: string) {
+  const stableLines = [
+    `CRM Lead ID: ${lead.id}`,
+    `El teléfono del paciente: ${lead.phone || ''}`,
+    `WA ID: ${lead.waId || ''}`,
+    `ManyChat ID: ${lead.subscriberId || ''}`,
+  ].filter((line) => !line.endsWith(': '))
+
+  const cleanedNotes = (notes ?? '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => {
+      const normalized = normalizeText(line)
+      return !(
+        normalized.startsWith('crm lead id') ||
+        normalized.startsWith('el telefono del paciente') ||
+        normalized.startsWith('telefono') ||
+        normalized.startsWith('whatsapp') ||
+        normalized.startsWith('wa id') ||
+        normalized.startsWith('manychat id') ||
+        normalized.startsWith('subscriber id') ||
+        normalized.startsWith('subscriber id')
+      )
+    })
+
+  return [...stableLines, ...cleanedNotes].join('\n')
 }
 
 async function withCalendarToken(): Promise<string> {
