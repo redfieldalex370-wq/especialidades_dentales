@@ -131,22 +131,25 @@ function mapTrazabilidad(row: RawRow): TrazabilidadEvento {
   }
 }
 
-async function assertLeadForCompany(waId: string) {
+async function assertLeadForCompany(
+  leadId: string,
+  companyKey = COMPANY_KEY,
+) {
   const client = requireSupabase()
   const { data, error } = await client
     .from(TABLES.leads)
     .select('id, wa_id, company_key')
-    .eq('company_key', COMPANY_KEY)
-    .eq('wa_id', waId)
+    .eq('id', leadId)
+    .eq('company_key', companyKey)
     .maybeSingle()
 
   if (error) throw error
-  if (!data) throw new Error('No encontramos el lead de esta clínica para ese wa_id.')
+  if (!data) throw new Error('No encontramos el lead de esta clínica para ese lead_id.')
   return data
 }
 
-export async function getFichaClinica(waId: string): Promise<FichaClinica | null> {
-  const leadRow = await assertLeadForCompany(waId)
+export async function getFichaClinica(leadId: string): Promise<FichaClinica | null> {
+  const leadRow = await assertLeadForCompany(leadId)
   const client = requireSupabase()
   const { data, error } = await client
     .from(TABLES.fichaClinica)
@@ -158,13 +161,13 @@ export async function getFichaClinica(waId: string): Promise<FichaClinica | null
   return mapFichaClinica(data as RawRow | null)
 }
 
-export async function upsertFichaClinica(waId: string, input: DentalLeadDetailUpdate['fichaClinica']): Promise<FichaClinica> {
-  const leadRow = await assertLeadForCompany(waId)
+export async function upsertFichaClinica(leadId: string, input: DentalLeadDetailUpdate['fichaClinica']): Promise<FichaClinica> {
+  const leadRow = await assertLeadForCompany(leadId)
   const client = requireSupabase()
   const payload = {
     lead_id: leadRow.id,
     company_key: String(leadRow.company_key),
-    wa_id: waId,
+    wa_id: leadRow.wa_id ?? null,
     motivo_consulta: input.motivoConsulta || null,
     diagnostico: input.diagnostico || null,
     tratamiento_propuesto: input.tratamientoPropuesto || null,
@@ -184,8 +187,8 @@ export async function upsertFichaClinica(waId: string, input: DentalLeadDetailUp
   return mapFichaClinica(data as RawRow)!
 }
 
-export async function getCasoComercial(waId: string): Promise<CasoComercial | null> {
-  const leadRow = await assertLeadForCompany(waId)
+export async function getCasoComercial(leadId: string): Promise<CasoComercial | null> {
+  const leadRow = await assertLeadForCompany(leadId)
   const client = requireSupabase()
   const { data, error } = await client
     .from(TABLES.casoComercial)
@@ -197,13 +200,13 @@ export async function getCasoComercial(waId: string): Promise<CasoComercial | nu
   return mapCasoComercial(data as RawRow | null)
 }
 
-export async function upsertCasoComercial(waId: string, input: DentalLeadDetailUpdate['casoComercial']): Promise<CasoComercial> {
-  const leadRow = await assertLeadForCompany(waId)
+export async function upsertCasoComercial(leadId: string, input: DentalLeadDetailUpdate['casoComercial']): Promise<CasoComercial> {
+  const leadRow = await assertLeadForCompany(leadId)
   const client = requireSupabase()
   const payload = {
     lead_id: leadRow.id,
     company_key: String(leadRow.company_key),
-    wa_id: waId,
+    wa_id: leadRow.wa_id ?? null,
     costo_cotizado: input.costoCotizado,
     promocion_aplicada: input.promocionAplicada || null,
     objeciones: input.objeciones || null,
@@ -269,26 +272,11 @@ export async function addEvento(params: {
 }
 
 export async function getDentalLeadDetail(leadId: string, companyKey = COMPANY_KEY): Promise<CrmLeadDetail> {
-  const client = requireSupabase()
-  const { data: leadRow, error: leadError } = await client
-    .from(TABLES.leads)
-    .select('wa_id, company_key')
-    .eq('id', leadId)
-    .eq('company_key', companyKey)
-    .maybeSingle()
-
-  if (leadError) throw leadError
-  if (!leadRow?.wa_id) {
-    return {
-      fichaClinica: null,
-      casoComercial: null,
-      trazabilidad: [],
-    }
-  }
+  await assertLeadForCompany(leadId, companyKey)
 
   const [fichaClinica, casoComercial] = await Promise.all([
-    getFichaClinica(String(leadRow.wa_id)),
-    getCasoComercial(String(leadRow.wa_id)),
+    getFichaClinica(leadId),
+    getCasoComercial(leadId),
   ])
 
   const trazabilidad = casoComercial?.casoComercialId
@@ -303,14 +291,10 @@ export async function getDentalLeadDetail(leadId: string, companyKey = COMPANY_K
 }
 
 export async function updateDentalLeadDetail(lead: CrmLead, input: DentalLeadDetailUpdate): Promise<CrmLeadDetail> {
-  if (!lead.waId) {
-    throw new Error('Este lead no tiene wa_id y la ficha real depende de ese dato.')
-  }
-
-  const previousCase = await getCasoComercial(lead.waId)
+  const previousCase = await getCasoComercial(lead.id)
   const [fichaClinica, casoComercial] = await Promise.all([
-    upsertFichaClinica(lead.waId, input.fichaClinica),
-    upsertCasoComercial(lead.waId, input.casoComercial),
+    upsertFichaClinica(lead.id, input.fichaClinica),
+    upsertCasoComercial(lead.id, input.casoComercial),
   ])
 
   const client = requireSupabase()
@@ -321,8 +305,8 @@ export async function updateDentalLeadDetail(lead: CrmLead, input: DentalLeadDet
       status_cita: input.casoComercial.estado || null,
       updated_at: new Date().toISOString(),
     })
+    .eq('id', lead.id)
     .eq('company_key', COMPANY_KEY)
-    .eq('wa_id', lead.waId)
 
   if (leadError) throw leadError
 
