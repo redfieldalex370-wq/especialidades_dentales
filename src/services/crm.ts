@@ -252,14 +252,13 @@ export function mapDentalLead(row: RawLead): CrmLead {
   const consultaFinAt = stringValue(row.consulta_fin_at)
   const relationalKioskStatus = stringValue(row.estado_consulta).toLowerCase()
 
-  const kioskStatus =
-    relationalKioskStatus && relationalKioskStatus !== 'sin_llegada'
-      ? normalizeKioskStatus(relationalKioskStatus)
-      : normalizeKioskStatus(
-          row.kiosk_status,
-          raw.kiosk_status,
-          arrivalAt ? 'en_espera' : 'pendiente',
-        )
+  const kioskStatus = relationalKioskStatus
+    ? normalizeKioskStatus(relationalKioskStatus)
+    : normalizeKioskStatus(
+        row.kiosk_status,
+        raw.kiosk_status,
+        arrivalAt ? 'en_espera' : 'pendiente',
+      )
   const kioskFlow = normalizeKioskFlow(raw.kiosk_flow ?? (appointmentConfirmed || appointmentDate ? 'con_cita' : 'sin_cita'))
 
   return {
