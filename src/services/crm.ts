@@ -250,7 +250,16 @@ export function mapDentalLead(row: RawLead): CrmLead {
   const arrivalAt = stringValue(row.llegada_kiosko_at, raw.arrival_at, raw.checked_in_at)
   const consultaInicioAt = stringValue(row.consulta_inicio_at)
   const consultaFinAt = stringValue(row.consulta_fin_at)
-  const kioskStatus = normalizeKioskStatusFromEstadoConsulta(row.estado_consulta)
+  const relationalKioskStatus = stringValue(row.estado_consulta).toLowerCase()
+
+  const kioskStatus =
+    relationalKioskStatus && relationalKioskStatus !== 'sin_llegada'
+      ? normalizeKioskStatus(relationalKioskStatus)
+      : normalizeKioskStatus(
+          row.kiosk_status,
+          raw.kiosk_status,
+          arrivalAt ? 'en_espera' : 'pendiente',
+        )
   const kioskFlow = normalizeKioskFlow(raw.kiosk_flow ?? (appointmentConfirmed || appointmentDate ? 'con_cita' : 'sin_cita'))
 
   return {
@@ -462,71 +471,77 @@ export async function updateDentalLeadKioskState(params: {
   arrivalAt?: string
 }): Promise<CrmLead> {
   const client = requireSupabase()
-  const companyKey = params.companyKey ?? resolveCompanyKey(params.lead.companyKey)
+  const companyKey =
+    params.companyKey ?? resolveCompanyKey(params.lead.companyKey)
+
   const now = new Date().toISOString()
-  const arrivalAt = params.arrivalAt ?? params.lead.arrivalAt ?? now
-  const estadoConsultaMap: Record<KioskLeadStatus, string> = {
-    pendiente: 'sin_llegada',
-    en_espera: 'en_espera',
-    en_consulta: 'en_consulta',
-    finalizada: 'finalizada',
-  }
+  const arrivalAt =
+    params.arrivalAt || params.lead.arrivalAt || now
+
+  const databaseStatus =
+    params.kioskStatus === 'pendiente'
+      ? 'sin_llegada'
+      : params.kioskStatus
+
   const rawPayload = {
     ...params.lead.rawPayload,
+    kiosk_status: params.kioskStatus,
     kiosk_flow: params.kioskFlow ?? params.lead.kioskFlow,
-    last_kiosk_update_at: new Date().toISOString(),
+    arrival_at:
+      params.kioskStatus === 'pendiente'
+        ? null
+        : arrivalAt,
+    last_kiosk_update_at: now,
   }
-  const updates: Record<string, unknown> = {
-    estado_consulta: estadoConsultaMap[params.kioskStatus],
-    llegada_kiosko_at: params.kioskStatus === 'pendiente' ? null : arrivalAt,
+
+  const updatePayload: Record<string, unknown> = {
+    estado_consulta: databaseStatus,
+    llegada_kiosko_at:
+      params.kioskStatus === 'pendiente'
+        ? null
+        : arrivalAt,
     raw_payload: rawPayload,
     status_cita: params.lead.appointmentStatus || null,
+    updated_at: now,
   }
 
-  if (params.kioskStatus === 'en_consulta') {
-    updates.consulta_inicio_at = params.lead.consultaInicioAt || now
-    updates.consulta_fin_at = null
-  }
+  switch (params.kioskStatus) {
+    case 'pendiente':
+      updatePayload.consulta_inicio_at = null
+      updatePayload.consulta_fin_at = null
+      break
 
-  if (params.kioskStatus === 'finalizada') {
-    updates.consulta_inicio_at = params.lead.consultaInicioAt || params.lead.arrivalAt || now
-    updates.consulta_fin_at = now
-  }
+    case 'en_espera':
+      updatePayload.consulta_inicio_at = null
+      updatePayload.consulta_fin_at = null
+      break
 
-  if (params.kioskStatus === 'en_espera') {
-    updates.consulta_inicio_at = null
-    updates.consulta_fin_at = null
-  }
+    case 'en_consulta':
+      if (params.lead.kioskStatus !== 'en_consulta') {
+        updatePayload.consulta_inicio_at = now
+      }
 
-  if (params.kioskStatus === 'pendiente') {
-    updates.consulta_inicio_at = null
-    updates.consulta_fin_at = null
+      updatePayload.consulta_fin_at = null
+      break
+
+    case 'finalizada':
+      if (params.lead.kioskStatus !== 'finalizada') {
+        updatePayload.consulta_fin_at = now
+      }
+      break
   }
 
   const { data, error } = await client
     .from(CRM_TABLES.leads)
-    .update(updates)
+    .update(updatePayload)
     .eq('id', params.lead.id)
     .eq('company_key', companyKey)
     .select('*')
     .single()
 
   if (error) throw error
-  const savedLead = mapDentalLead(data as RawLead)
-  const eventByStatus: Partial<Record<KioskLeadStatus, string>> = {
-    en_espera: 'llegada registrada',
-    en_consulta: 'consulta iniciada',
-    finalizada: 'consulta finalizada',
-  }
-  const tipoEvento = eventByStatus[params.kioskStatus]
-  if (tipoEvento) {
-    await logTraceabilityEvent({
-      lead: savedLead,
-      tipoEvento,
-      responsable: 'sistema',
-    })
-  }
-  return savedLead
+
+  return mapDentalLead(data as RawLead)
 }
 
 export async function callNextWaitingPatient(params: {
@@ -655,6 +670,10 @@ export async function createDentalWalkInLead(params: {
   const client = requireSupabase()
   const now = new Date().toISOString()
   const companyKey = params.companyKey ?? DEFAULT_CRM_COMPANY_KEY
+  const digits = params.phone.replace(/\D/g, '')
+  if (!digits) {
+    throw new Error('El teléfono debe contener números.')
+  }
   const phoneE164 = normalizeMexPhoneToE164(params.phone)
   const canonicalPhone = canonicalMxPhoneKey(params.phone)
   const rawPayload = {
@@ -670,6 +689,7 @@ export async function createDentalWalkInLead(params: {
     .from(CRM_TABLES.leads)
     .insert({
       company_key: companyKey,
+      subscriber_id: digits,
       nombre_paciente: params.name,
       whatsapp_phone: phoneE164 || canonicalPhone || null,
       wa_id: phoneE164 || canonicalPhone || null,
