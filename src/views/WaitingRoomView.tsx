@@ -414,29 +414,31 @@ export function WaitingRoomView({
             {todayAppointments.length > 0 ? (
               todayAppointments.map((appointment) => (
                 <article
-                  className={`appointment-card appointment-card-static appointment-card-match-${appointment.matchedLeadId ? 'yes' : 'no'}`}
+                  className={`appointment-card appointment-card-static appointment-card-match-${appointment.matchedUsuarioId ? 'yes' : 'no'}`}
                   key={appointment.id}
                 >
                   <div>
                     <strong>{appointment.patientName || appointment.title}</strong>
                     <span>{appointment.title}</span>
-                    <small>{labelForAppointmentState(findLeadById(leads, appointment.matchedLeadId)?.kioskStatus ?? 'pendiente')}</small>
+                    <small>
+                      {appointment.matchedLeadId
+                        ? labelForAppointmentState(findLeadById(leads, appointment.matchedLeadId)?.kioskStatus ?? 'pendiente')
+                        : appointment.matchedUsuarioId
+                          ? 'Sin oportunidad comercial'
+                          : 'Paciente sin identificar'}
+                    </small>
                   </div>
                   <div className="appointment-card-meta">
                     <strong>{formatDateTime(appointment.start)}</strong>
                   </div>
                   <div className="patient-browser-actions">
-                    {appointment.matchedLeadId ? (
-                      renderAppointmentActions({
-                        appointment,
-                        leads,
-                        busyLeadId,
-                        onOpenLead,
-                        onArrival: (lead) => void handleArrival(lead, 'con_cita'),
-                      })
-                    ) : (
-                      <button className="secondary-button" disabled>Sin ficha</button>
-                    )}
+                    {renderAppointmentActions({
+                      appointment,
+                      leads,
+                      busyLeadId,
+                      onOpenLead,
+                      onArrival: (lead) => void handleArrival(lead, 'con_cita'),
+                    })}
                   </div>
                 </article>
               ))
@@ -599,7 +601,18 @@ function renderAppointmentActions({
   onArrival: (lead: CrmLead) => void
 }) {
   const matchedLead = findLeadById(leads, appointment.matchedLeadId)
-  if (!matchedLead) return <button className="secondary-button" disabled>Sin ficha</button>
+  if (!matchedLead) {
+    if (appointment.matchedUsuarioId) {
+      return (
+        <>
+          <button className="secondary-button" onClick={() => onOpenLead(appointment.matchedUsuarioId)}>Ficha</button>
+          <button className="secondary-button" disabled>Sin oportunidad CRM</button>
+        </>
+      )
+    }
+
+    return <button className="secondary-button" disabled>No identificado</button>
+  }
 
   if (matchedLead.kioskStatus === 'pendiente') {
     return (
