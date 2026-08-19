@@ -15,53 +15,51 @@ concurrency:
 
 jobs:
   deploy:
+    name: Build and deploy
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
-      - name: Checkout repository
+      - name: Descargar repositorio
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Configurar Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 20
           cache: npm
 
-      - name: Install dependencies
+      - name: Instalar dependencias
         run: npm ci
 
-      - name: Build application
+      - name: Compilar aplicación
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
-          VITE_N8N_SCHEDULER_URL: ${{ secrets.VITE_N8N_SCHEDULER_URL }}
         run: npm run build
 
-      - name: Configure SSH key
+      - name: Configurar llave SSH
         env:
-          HOSTINGER_HOST: ${{ secrets.HOSTINGER_HOST }}
-          HOSTINGER_PORT: ${{ secrets.HOSTINGER_PORT }}
           HOSTINGER_SSH_PRIVATE_KEY: ${{ secrets.HOSTINGER_SSH_PRIVATE_KEY }}
         run: |
-          test -n "$HOSTINGER_HOST"
-          test -n "$HOSTINGER_PORT"
-          test -n "$HOSTINGER_SSH_PRIVATE_KEY"
-          install -m 700 -d "$HOME/.ssh"
-          printf '%s\n' "$HOSTINGER_SSH_PRIVATE_KEY" > "$HOME/.ssh/hostinger_ed25519"
-          chmod 600 "$HOME/.ssh/hostinger_ed25519"
-          ssh-keyscan -p "$HOSTINGER_PORT" -H "$HOSTINGER_HOST" >> "$HOME/.ssh/known_hosts"
-          chmod 600 "$HOME/.ssh/known_hosts"
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$HOSTINGER_SSH_PRIVATE_KEY" > "$HOME/.ssh/hostinger_deploy"
+          chmod 600 "$HOME/.ssh/hostinger_deploy"
+          ssh-keyscan -p 65002 -H 46.202.156.115 >> "$HOME/.ssh/known_hosts"
+          chmod 644 "$HOME/.ssh/known_hosts"
 
-      - name: Upload build to Hostinger
-        env:
-          HOSTINGER_HOST: ${{ secrets.HOSTINGER_HOST }}
-          HOSTINGER_PORT: ${{ secrets.HOSTINGER_PORT }}
-          HOSTINGER_USERNAME: ${{ secrets.HOSTINGER_USERNAME }}
-          HOSTINGER_TARGET_DIR: ${{ secrets.HOSTINGER_TARGET_DIR }}
+      - name: Verificar conexión con Hostinger
         run: |
-          test -n "$HOSTINGER_HOST"
-          test -n "$HOSTINGER_PORT"
-          test -n "$HOSTINGER_USERNAME"
-          test -n "$HOSTINGER_TARGET_DIR"
-          ssh -i "$HOME/.ssh/hostinger_ed25519" -p "$HOSTINGER_PORT" "$HOSTINGER_USERNAME@$HOSTINGER_HOST" "test -d '$HOSTINGER_TARGET_DIR'"
-          rsync -avz --delete --exclude=".htaccess" --exclude=".well-known/" -e "ssh -i $HOME/.ssh/hostinger_ed25519 -p $HOSTINGER_PORT" dist/ "$HOSTINGER_USERNAME@$HOSTINGER_HOST:$HOSTINGER_TARGET_DIR/"
+          ssh \
+            -i "$HOME/.ssh/hostinger_deploy" \
+            -p 65002 \
+            -o BatchMode=yes \
+            u352513768@46.202.156.115 \
+            "mkdir -p 'domains/lightgreen-reindeer-927529.hostingersite.com/public_html'"
+
+      - name: Desplegar en Hostinger
+        run: |
+          rsync -az \
+            -e "ssh -i $HOME/.ssh/hostinger_deploy -p 65002 -o BatchMode=yes" \
+            dist/ \
+            u352513768@46.202.156.115:domains/lightgreen-reindeer-927529.hostingersite.com/public_html/
