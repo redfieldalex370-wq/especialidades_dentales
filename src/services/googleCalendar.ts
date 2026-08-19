@@ -1,33 +1,11 @@
 import type { CalendarAppointment, CrmLead, WaClienteEstado } from '../types'
 import { canonicalMxPhoneKey, phonesMatchMx } from '../lib/phone'
+import { requireSupabase } from '../lib/supabase'
 
 const apiKey = import.meta.env.VITE_GOOGLE_API_KEY?.trim()
 const calendarId = import.meta.env.VITE_GOOGLE_CALENDAR_ID?.trim()
-const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim()
 
 export const isGoogleCalendarConfigured = Boolean(apiKey && calendarId)
-export const isGoogleCalendarAuthConfigured = Boolean(calendarId && googleClientId)
-
-type GoogleTokenCallback = (token: string) => void
-
-declare global {
-  interface Window {
-    google?: {
-      accounts?: {
-        oauth2?: {
-          initTokenClient: (config: {
-            client_id: string
-            scope: string
-            callback: (response: { access_token?: string; error?: string }) => void
-            error_callback?: () => void
-          }) => {
-            requestAccessToken: (options?: { prompt?: string }) => void
-          }
-        }
-      }
-    }
-  }
-}
 
 interface GoogleCalendarEventDate {
   date?: string
@@ -140,73 +118,43 @@ function mapCalendarEvent(item: GoogleCalendarEvent, leads: CrmLead[], usuarios:
 }
 
 export async function connectGoogleCalendar(): Promise<void> {
-  await withCalendarToken()
+  // Las operaciones de escritura se autorizan con la cuenta de servicio en Supabase.
 }
 
 export async function createCalendarAppointment(input: CalendarAppointmentInput): Promise<CalendarAppointment> {
-  const token = await withCalendarToken()
   const title = buildAppointmentTitle(input.appointmentType, input.lead.name)
   const description = buildCalendarDescription(input.lead, input.notes)
-  const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId!)}/events`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      summary: title,
-      description,
-      start: { dateTime: input.start },
-      end: { dateTime: input.end },
-    }),
+  const payload = await invokeCalendarWriter({
+    operation: 'create',
+    summary: title,
+    description,
+    start: input.start,
+    end: input.end,
   })
 
-  if (!response.ok) {
-    throw new Error('No pudimos crear la cita en Google Calendar.')
-  }
-
-  const payload = (await response.json()) as GoogleCalendarEvent
   return mapCalendarEvent(payload, [input.lead], []) ?? fallbackCalendarAppointment(payload, input.lead)
 }
 
 export async function updateCalendarAppointment(eventId: string, input: CalendarAppointmentInput): Promise<CalendarAppointment> {
-  const token = await withCalendarToken()
   const title = buildAppointmentTitle(input.appointmentType, input.lead.name)
   const description = buildCalendarDescription(input.lead, input.notes)
-  const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId!)}/events/${encodeURIComponent(eventId)}`, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      summary: title,
-      description,
-      start: { dateTime: input.start },
-      end: { dateTime: input.end },
-    }),
+  const payload = await invokeCalendarWriter({
+    operation: 'update',
+    eventId,
+    summary: title,
+    description,
+    start: input.start,
+    end: input.end,
   })
 
-  if (!response.ok) {
-    throw new Error('No pudimos actualizar la cita en Google Calendar.')
-  }
-
-  const payload = (await response.json()) as GoogleCalendarEvent
   return mapCalendarEvent(payload, [input.lead], []) ?? fallbackCalendarAppointment(payload, input.lead)
 }
 
 export async function deleteCalendarAppointment(eventId: string): Promise<void> {
-  const token = await withCalendarToken()
-  const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId!)}/events/${encodeURIComponent(eventId)}`, {
-    method: 'DELETE',
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+  await invokeCalendarWriter({
+    operation: 'delete',
+    eventId,
   })
-
-  if (!response.ok) {
-    throw new Error('No pudimos eliminar la cita en Google Calendar.')
-  }
 }
 
 function extractPatientName(title: string): string {
@@ -455,71 +403,22 @@ export function buildCalendarDescription(lead: CrmLead, notes?: string) {
   return [...stableLines, ...cleanedNotes].join('\n')
 }
 
-async function withCalendarToken(): Promise<string> {
-  if (!isGoogleCalendarAuthConfigured) {
-    throw new Error('Falta configurar Google Calendar en esta página.')
-  }
-
-  const existingToken = sessionStorage.getItem('gc_access_token')
-  if (existingToken) return existingToken
-
-  await ensureGoogleIdentityScript()
-  return new Promise<string>((resolve, reject) => {
-    const oauth2 = window.google?.accounts?.oauth2
-    if (!oauth2) {
-      reject(new Error('No pudimos abrir la conexión con Google.'))
-      return
-    }
-
-    const tokenClient = oauth2.initTokenClient({
-      client_id: googleClientId!,
-      scope: 'https://www.googleapis.com/auth/calendar',
-      callback: (response) => {
-        if (response.error || !response.access_token) {
-          reject(new Error('Google no devolvió acceso al calendario.'))
-          return
-        }
-
-        sessionStorage.setItem('gc_access_token', response.access_token)
-        resolve(response.access_token)
-      },
-      error_callback: () => {
-        reject(new Error('No se pudo completar el acceso con Google.'))
-      },
-    })
-
-    tokenClient.requestAccessToken({ prompt: existingToken ? '' : 'consent' })
-  })
-}
-
-async function ensureGoogleIdentityScript(): Promise<void> {
-  if (window.google?.accounts?.oauth2) return
-
-  const existing = document.querySelector<HTMLScriptElement>('script[data-google-gsi="true"]')
-  if (existing) {
-    await waitForGoogleIdentity()
-    return
-  }
-
-  await new Promise<void>((resolve, reject) => {
-    const script = document.createElement('script')
-    script.src = 'https://accounts.google.com/gsi/client'
-    script.async = true
-    script.defer = true
-    script.dataset.googleGsi = 'true'
-    script.onload = () => resolve()
-    script.onerror = () => reject(new Error('No pudimos cargar Google Identity.'))
-    document.head.appendChild(script)
+async function invokeCalendarWriter(input: {
+  operation: 'create' | 'update' | 'delete'
+  eventId?: string
+  summary?: string
+  description?: string
+  start?: string
+  end?: string
+}): Promise<GoogleCalendarEvent> {
+  const client = requireSupabase()
+  const { data, error } = await client.functions.invoke('google-calendar', {
+    body: input,
   })
 
-  await waitForGoogleIdentity()
-}
-
-async function waitForGoogleIdentity(): Promise<void> {
-  for (let attempt = 0; attempt < 30; attempt += 1) {
-    if (window.google?.accounts?.oauth2) return
-    await new Promise((resolve) => window.setTimeout(resolve, 150))
+  if (error) {
+    throw new Error(`No pudimos guardar la cita en Google Calendar: ${error.message}`)
   }
 
-  throw new Error('Google Identity tardó demasiado en responder.')
+  return data as GoogleCalendarEvent
 }
