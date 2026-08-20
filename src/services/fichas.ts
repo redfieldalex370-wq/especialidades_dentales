@@ -205,6 +205,20 @@ export async function upsertFichaClinica(params: {
   if (params.leadId) leadRow = await assertLeadForCompany(params.leadId)
   if (params.usuarioId) usuarioRow = await assertUsuarioForCompany(params.usuarioId)
 
+  if (params.usuarioId && !leadRow && !usuarioRow?.crm_lead_id) {
+    const { data, error } = await client.rpc('save_ficha_clinica_calendar', {
+      p_usuario_id: params.usuarioId,
+      p_motivo_consulta: input.motivoConsulta || null,
+      p_diagnostico: input.diagnostico || null,
+      p_tratamiento_propuesto: input.tratamientoPropuesto || null,
+      p_piezas_involucradas: input.piezasInvolucradas || null,
+      p_notas_evolucion: input.notasEvolucion || null,
+      p_archivos_adjuntos: input.archivosAdjuntos ?? [],
+    })
+    if (error) throw error
+    return mapFichaClinica(data as RawRow)!
+  }
+
   const identityFilter = params.usuarioId
     ? { usuario_id: params.usuarioId }
     : { lead_id: leadRow?.id ?? null }
