@@ -1,5 +1,6 @@
 import { requireSupabase } from '../lib/supabase'
 import type { CrmLead, ValoracionPaciente } from '../types'
+import { addEvento, upsertCasoComercial, upsertFichaClinica } from './fichas'
 
 const COMPANY_KEY = 'especialidades-dentales'
 const TABLE = 'valoraciones_pacientes'
@@ -98,14 +99,48 @@ export async function linkValoracionToLead(params: {
   lead: CrmLead
 }): Promise<void> {
   const client = requireSupabase()
+  const { data: valoracion, error: readError } = await client
+    .from(TABLE)
+    .select('*')
+    .eq('id', params.valoracionId)
+    .single()
+
+  if (readError) throw readError
+
   const { error } = await client
     .from(TABLE)
     .update({
-      usuario_id: params.lead.id,
+      crm_lead_id: params.lead.id,
       estado_vinculacion: 'vinculada',
       updated_at: new Date().toISOString(),
     })
     .eq('id', params.valoracionId)
 
   if (error) throw error
+
+  await upsertFichaClinica({ leadId: params.lead.id }, {
+    motivoConsulta: stringValue(valoracion.motivo_consulta),
+    diagnostico: stringValue(valoracion.diagnostico),
+    tratamientoPropuesto: stringValue(valoracion.tratamiento_recomendado),
+    piezasInvolucradas: stringValue(valoracion.piezas_involucradas),
+    notasEvolucion: stringValue(valoracion.observaciones),
+    archivosAdjuntos: [],
+  })
+
+  const caso = await upsertCasoComercial(params.lead.id, {
+    costoCotizado: typeof valoracion.costo_cotizado === 'number' ? valoracion.costo_cotizado : null,
+    promocionAplicada: stringValue(valoracion.promocion_aplicada),
+    objeciones: stringValue(valoracion.objeciones),
+    indicacionSeguimiento: '',
+    proximaCitaSugerida: '',
+    estado: valoracion.escalado_closer ? 'escalado_closer' : 'valorado',
+    montoCerrado: null,
+    cerradoPor: '',
+  })
+
+  await addEvento({
+    casoComercialId: caso.casoComercialId,
+    tipoEvento: 'valoracion vinculada manualmente',
+    responsable: 'doctor',
+  })
 }

@@ -87,6 +87,7 @@ export interface FichaClinica {
   id?: string
   fichaClinicaId: string
   leadId?: string
+  usuarioId?: string
   companyKey?: string
   waId: string
   motivoConsulta: string

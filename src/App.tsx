@@ -23,6 +23,7 @@ import {
   createCalendarAppointment,
   isGoogleCalendarConfigured,
   listCalendarAppointments,
+  updateCalendarAppointment,
 } from './services/googleCalendar'
 import { ensureWaClienteEstado, getWaClienteEstadoByUsuarioId, linkWaClienteEstadoToCrmLead, listWaClientesEstado } from './services/waClientesEstado'
 
@@ -290,6 +291,37 @@ export default function App() {
       lead: selectedLead,
       usuarioId: selectedPatient.usuarioId || '',
     }, input)
+
+    if (selectedLead && input.casoComercial.proximaCitaSugerida && isGoogleCalendarConfigured) {
+      const start = new Date(input.casoComercial.proximaCitaSugerida).toISOString()
+      const end = addMinutesToIso(start, 30)
+      const rawEventId = selectedLead.rawPayload.google_calendar_event_id
+      const eventId = typeof rawEventId === 'string' ? rawEventId : ''
+      const appointmentType = selectedLead.rawPayload.tipo_cita === 'Limpieza dental' ? 'limpieza' : 'valoracion'
+      const calendarEvent = eventId
+        ? await updateCalendarAppointment(eventId, {
+            lead: selectedLead,
+            patientName: selectedLead.name,
+            start,
+            end,
+            appointmentType,
+          })
+        : await createCalendarAppointment({
+            lead: selectedLead,
+            patientName: selectedLead.name,
+            start,
+            end,
+            appointmentType,
+          })
+
+      await syncDentalLeadAppointment({
+        lead: selectedLead,
+        appointmentDate: calendarEvent.start,
+        appointmentStatus: 'CITA_CONFIRMADA',
+        appointmentType: appointmentType === 'limpieza' ? 'Limpieza dental' : 'Valoración dental',
+        calendarEventId: calendarEvent.id,
+      })
+    }
     await Promise.all([loadCrm(), loadWaClientes(), loadLeadDetail(selectedPatient)])
   }
 

@@ -91,6 +91,10 @@ function mapFichaClinica(row: RawRow | null): FichaClinica | null {
 
   return {
     fichaClinicaId: stringValue(row.id),
+    id: stringValue(row.id),
+    leadId: stringValue(row.lead_id),
+    usuarioId: stringValue(row.usuario_id),
+    companyKey: stringValue(row.company_key),
     waId: stringValue(row.wa_id),
     motivoConsulta: stringValue(row.motivo_consulta),
     diagnostico: stringValue(row.diagnostico),
@@ -201,23 +205,34 @@ export async function upsertFichaClinica(params: {
   if (params.leadId) leadRow = await assertLeadForCompany(params.leadId)
   if (params.usuarioId) usuarioRow = await assertUsuarioForCompany(params.usuarioId)
 
+  const identityFilter = params.usuarioId
+    ? { usuario_id: params.usuarioId }
+    : { lead_id: leadRow?.id ?? null }
+  const existingQuery = client
+    .from(TABLES.fichaClinica)
+    .select('*')
+    .match(identityFilter)
+    .maybeSingle()
+  const { data: existingRow, error: existingError } = await existingQuery
+  if (existingError) throw existingError
+
   const payload = {
     usuario_id: params.usuarioId || null,
     lead_id: leadRow?.id ?? (stringValue(usuarioRow?.crm_lead_id) || null),
     company_key: String(leadRow?.company_key ?? COMPANY_KEY),
     wa_id: leadRow?.wa_id ?? usuarioRow?.whatsapp_phone ?? null,
-    motivo_consulta: input.motivoConsulta || null,
-    diagnostico: input.diagnostico || null,
-    tratamiento_propuesto: input.tratamientoPropuesto || null,
-    piezas_involucradas: input.piezasInvolucradas || null,
-    notas_evolucion: input.notasEvolucion || null,
+    motivo_consulta: input.motivoConsulta || (existingRow as RawRow | null)?.motivo_consulta || null,
+    diagnostico: input.diagnostico || (existingRow as RawRow | null)?.diagnostico || null,
+    tratamiento_propuesto: input.tratamientoPropuesto || (existingRow as RawRow | null)?.tratamiento_propuesto || null,
+    piezas_involucradas: input.piezasInvolucradas || (existingRow as RawRow | null)?.piezas_involucradas || null,
+    notas_evolucion: input.notasEvolucion || (existingRow as RawRow | null)?.notas_evolucion || null,
     archivos_adjuntos: input.archivosAdjuntos ?? [],
     updated_at: new Date().toISOString(),
   }
 
   const { data, error } = await client
     .from(TABLES.fichaClinica)
-    .upsert(payload, { onConflict: 'usuario_id' })
+    .upsert(payload, { onConflict: params.usuarioId ? 'usuario_id' : 'lead_id' })
     .select('*')
     .single()
 
