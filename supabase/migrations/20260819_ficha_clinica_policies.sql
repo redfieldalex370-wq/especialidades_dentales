@@ -1,3 +1,4 @@
+
 -- Permite que el frontend público guarde fichas clínicas de esta clínica.
 -- El acceso queda limitado por company_key y no crea oportunidades comerciales.
 
