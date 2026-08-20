@@ -196,6 +196,11 @@ export function WaitingRoomView({
       return
     }
 
+    if (walkInAppointmentStart && !isWithinClinicSchedule(new Date(walkInAppointmentStart))) {
+      setActionMessage('Ese horario está fuera del horario de atención de Especialidades Dentales.')
+      return
+    }
+
     setSubmittingWalkIn(true)
     setActionMessage('')
 
@@ -673,4 +678,20 @@ function minutesSince(value: string, now: number): number {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return 0
   return Math.max(0, Math.floor((now - date.getTime()) / 60_000))
+}
+
+function isWithinClinicSchedule(date: Date): boolean {
+  if (Number.isNaN(date.getTime())) return false
+
+  const windows: Record<number, Array<[number, number]>> = {
+    1: [[9 * 60, 13 * 60 + 30], [15 * 60, 16 * 60 + 30]],
+    2: [[9 * 60, 13 * 60 + 30]],
+    3: [[9 * 60, 13 * 60 + 30], [15 * 60, 16 * 60 + 30]],
+    4: [[9 * 60, 14 * 60 + 30]],
+    5: [[9 * 60, 13 * 60 + 30]],
+    6: [[9 * 60, 12 * 60 + 30]],
+  }
+
+  const minuteOfDay = date.getHours() * 60 + date.getMinutes()
+  return (windows[date.getDay()] ?? []).some(([start, end]) => minuteOfDay >= start && minuteOfDay < end)
 }

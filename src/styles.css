@@ -189,6 +189,115 @@ code { background: #edf4f6; padding: 2px 6px; border-radius: 6px; font-size: .88
   .integration-card .primary-button, .integration-message { grid-column:1 / -1; }
 }
 
+/* Modos públicos: kiosko y pantalla de turnos */
+.public-shell .main-area,
+.public-shell .content-wrap {
+  width: 100%;
+  max-width: none;
+  padding: 0;
+}
+
+.public-display {
+  min-height: 100vh;
+  padding: clamp(24px, 5vw, 72px);
+  background: linear-gradient(135deg, #edf8f7 0%, #f8fbfc 55%, #e4f3f2 100%);
+  color: #102c3b;
+}
+
+.public-display-header {
+  max-width: 1200px;
+  margin: 0 auto 28px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.public-display-header h1 {
+  margin: 4px 0 0;
+  font-size: clamp(2rem, 4vw, 4rem);
+}
+
+.display-grid {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 24px;
+}
+
+.display-current,
+.display-queue {
+  min-height: 320px;
+  padding: clamp(24px, 4vw, 48px);
+}
+
+.display-current {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border-top: 8px solid #0dbb91;
+}
+
+.display-current h2 {
+  margin: 18px 0 10px;
+  font-size: clamp(2rem, 5vw, 4.5rem);
+  line-height: 1.05;
+}
+
+.display-current p {
+  margin: 0;
+  color: #567285;
+  font-size: clamp(1.1rem, 2vw, 1.5rem);
+}
+
+.display-queue .section-head {
+  margin-bottom: 20px;
+}
+
+.display-queue-row {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 0;
+  border-top: 1px solid #d7e5e8;
+  font-size: clamp(1.15rem, 2.5vw, 1.8rem);
+}
+
+.display-queue-row strong {
+  color: #0b9484;
+}
+
+.display-queue-row small {
+  color: #6d8592;
+  font-size: .8em;
+}
+
+.sidebar-public-links {
+  margin: 18px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255,255,255,.12);
+  display: grid;
+  gap: 8px;
+}
+
+.sidebar-public-links a {
+  color: #bfe5e2;
+  font-size: .82rem;
+  text-decoration: none;
+}
+
+.sidebar-public-links a:hover {
+  color: #fff;
+}
+
+@media (max-width: 800px) {
+  .public-display-header { align-items: flex-start; flex-direction: column; }
+  .display-grid { grid-template-columns: 1fr; }
+  .display-current, .display-queue { min-height: 0; }
+}
+
 .preline {
   white-space: pre-line;
 }

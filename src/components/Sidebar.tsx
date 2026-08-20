@@ -36,6 +36,11 @@ export function Sidebar({ active, onChange }: SidebarProps) {
         ))}
       </nav>
 
+      <div className="sidebar-public-links">
+        <a href="/kiosko">Kiosko</a>
+        <a href="/pantalla">Pantalla de turnos</a>
+      </div>
+
       <div className="sidebar-footer">
         <div className="doctor-chip">
           <span className="presence-dot" />

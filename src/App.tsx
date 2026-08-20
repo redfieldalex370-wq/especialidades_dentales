@@ -4,6 +4,7 @@ import { AutomationView } from './views/AutomationView'
 import { DashboardView } from './views/DashboardView'
 import { PatientView } from './views/PatientView'
 import { WaitingRoomView } from './views/WaitingRoomView'
+import { QueueDisplayView } from './views/QueueDisplayView'
 import type { CalendarAppointment, CrmLead, CrmLeadDetail, CrmStage, DentalLeadDetailUpdate, KioskFlow, KioskLeadStatus, WaClienteEstado } from './types'
 import { supabase } from './lib/supabase'
 import {
@@ -33,7 +34,9 @@ interface SelectedPatientState {
 }
 
 export default function App() {
-  const [view, setView] = useState<ViewKey>('dashboard')
+  const path = window.location.pathname.toLowerCase()
+  const publicMode = path === '/kiosko' || path === '/pantalla'
+  const [view, setView] = useState<ViewKey>(publicMode ? 'waiting' : 'dashboard')
   const companyKey = 'especialidades-dentales'
   const [crmLeads, setCrmLeads] = useState<CrmLead[]>([])
   const [waClientes, setWaClientes] = useState<WaClienteEstado[]>([])
@@ -503,10 +506,10 @@ export default function App() {
   const topbarLabel = crmLoading ? 'Sincronizando' : `${crmLeads.length} pacientes en CRM`
 
   return (
-    <div className="app-shell">
-      <Sidebar active={view} onChange={setView} />
+    <div className={publicMode ? 'app-shell public-shell' : 'app-shell'}>
+      {!publicMode && <Sidebar active={view} onChange={setView} />}
       <main className="main-area">
-        <header className="topbar">
+        {!publicMode && <header className="topbar">
           <div>
             <span className="topbar-kicker">Especialidades Dentales</span>
             <strong>CRM de citas y seguimiento</strong>
@@ -517,27 +520,28 @@ export default function App() {
             </button>
             <div className="user-avatar">ED</div>
           </div>
-        </header>
+        </header>}
 
         <div className="content-wrap">
-          {view === 'dashboard' && (
-            <DashboardView
-              leads={crmLeads}
-              calendarAppointments={calendarAppointments}
-              calendarLoading={calendarLoading}
-              calendarError={calendarError}
-              stages={crmStages}
-              loading={crmLoading}
-              error={crmError}
-              pipelineSource={pipelineSource}
-              pipelineWarning={pipelineWarning}
-              movingLeadId={movingLeadId}
-              onMoveLead={handleMoveLead}
-              onOpenLead={openLead}
-              onRefresh={() => void loadCrm()}
-            />
-          )}
-          {view === 'waiting' && (
+          {path === '/pantalla' ? <QueueDisplayView leads={crmLeads} onRefresh={() => void loadCrm()} /> : <>
+            {view === 'dashboard' && (
+              <DashboardView
+                leads={crmLeads}
+                calendarAppointments={calendarAppointments}
+                calendarLoading={calendarLoading}
+                calendarError={calendarError}
+                stages={crmStages}
+                loading={crmLoading}
+                error={crmError}
+                pipelineSource={pipelineSource}
+                pipelineWarning={pipelineWarning}
+                movingLeadId={movingLeadId}
+                onMoveLead={handleMoveLead}
+                onOpenLead={openLead}
+                onRefresh={() => void loadCrm()}
+              />
+            )}
+            {view === 'waiting' && (
             <WaitingRoomView
               leads={crmLeads}
               calendarAppointments={calendarAppointments}
@@ -550,8 +554,8 @@ export default function App() {
               onCallNextPatient={handleCallNextPatient}
               onFinalizeConsultationByLead={handleFinalizeConsultationByLead}
             />
-          )}
-          {view === 'patient' && (
+            )}
+            {view === 'patient' && (
             <PatientView
               lead={selectedLead}
               waClient={selectedWaCliente}
@@ -565,8 +569,9 @@ export default function App() {
               onCallNextPatient={handleCallNextPatient}
               onFinalizeConsultationByLead={handleFinalizeConsultationByLead}
             />
-          )}
-          {view === 'automation' && <AutomationView leads={crmLeads} onOpenLead={openLead} />}
+            )}
+            {view === 'automation' && <AutomationView leads={crmLeads} onOpenLead={openLead} />}
+          </>}
         </div>
       </main>
     </div>
