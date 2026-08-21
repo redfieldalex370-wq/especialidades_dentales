@@ -37,7 +37,8 @@ export function WaitingRoomView({
   const [walkInName, setWalkInName] = useState('')
   const [walkInPhone, setWalkInPhone] = useState('')
   const [walkInAppointmentType, setWalkInAppointmentType] = useState<'valoracion' | 'limpieza'>('valoracion')
-  const [walkInAppointmentStart, setWalkInAppointmentStart] = useState('')
+  const [walkInAppointmentDate, setWalkInAppointmentDate] = useState('')
+  const [walkInAppointmentTime, setWalkInAppointmentTime] = useState('')
   const [actionMessage, setActionMessage] = useState('')
   const [busyLeadId, setBusyLeadId] = useState('')
   const [submittingWalkIn, setSubmittingWalkIn] = useState(false)
@@ -52,6 +53,11 @@ export function WaitingRoomView({
         .filter((item) => isSameDay(item.start, new Date()) && isActiveCalendarAppointment(item.status) && isWithinClinicSchedule(new Date(item.start)))
         .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime()),
     [calendarAppointments],
+  )
+
+  const availableAppointmentSlots = useMemo(
+    () => getAvailableAppointmentSlots(walkInAppointmentDate, calendarAppointments),
+    [calendarAppointments, walkInAppointmentDate],
   )
 
   const todayAppointmentLeadIds = useMemo(
@@ -194,8 +200,12 @@ export function WaitingRoomView({
       return
     }
 
-    if (walkInAppointmentStart && !isWithinClinicSchedule(new Date(walkInAppointmentStart))) {
-      setActionMessage('Ese horario está fuera del horario de atención de Especialidades Dentales.')
+    const appointmentStart = walkInAppointmentDate && walkInAppointmentTime
+      ? `${walkInAppointmentDate}T${walkInAppointmentTime}`
+      : ''
+
+    if (walkInAppointmentDate && !walkInAppointmentTime) {
+      setActionMessage('Selecciona uno de los horarios disponibles.')
       return
     }
 
@@ -206,17 +216,18 @@ export function WaitingRoomView({
       const lead = await onRegisterWalkIn(
         walkInName.trim(),
         walkInPhone.trim(),
-        walkInAppointmentStart ? walkInAppointmentType : undefined,
-        walkInAppointmentStart ? toIsoDateTime(walkInAppointmentStart) : undefined,
+        appointmentStart ? walkInAppointmentType : undefined,
+        appointmentStart ? toIsoDateTime(appointmentStart) : undefined,
       )
       setActionMessage(
-        walkInAppointmentStart
+        appointmentStart
           ? `Paciente registrado en espera y cita enviada a Calendar: ${lead.name}.`
           : `Paciente registrado en espera: ${lead.name}.`,
       )
       setWalkInName('')
       setWalkInPhone('')
-      setWalkInAppointmentStart('')
+      setWalkInAppointmentDate('')
+      setWalkInAppointmentTime('')
       setWalkInAppointmentType('valoracion')
       onOpenLead(lead.id)
     } catch (error) {
@@ -363,25 +374,39 @@ export function WaitingRoomView({
               </select>
             </label>
             <label className="field-row field-row-editable">
-              <span>Horario</span>
+              <span>Fecha</span>
               <input
                 className="field-input"
-                type="datetime-local"
-                value={walkInAppointmentStart}
+                type="date"
+                value={walkInAppointmentDate}
                 onChange={(event) => {
                   const value = event.target.value
-                  if (value && !isWithinClinicSchedule(new Date(value))) {
-                    setWalkInAppointmentStart('')
-                    setActionMessage('Selecciona un horario disponible: lunes a viernes según agenda; sábado solo de 9:00 a 12:30.')
+                  if (value && !isClinicDay(value)) {
+                    setWalkInAppointmentDate('')
+                    setWalkInAppointmentTime('')
+                    setActionMessage('Ese día no tiene servicio. Elige lunes a viernes o un sábado habilitado.')
                     return
                   }
                   setActionMessage('')
-                  setWalkInAppointmentStart(value)
+                  setWalkInAppointmentDate(value)
+                  setWalkInAppointmentTime('')
                 }}
               />
             </label>
+            <label className="field-row field-row-editable">
+              <span>Horario disponible</span>
+              <select
+                className="field-input"
+                value={walkInAppointmentTime}
+                onChange={(event) => setWalkInAppointmentTime(event.target.value)}
+                disabled={!walkInAppointmentDate || availableAppointmentSlots.length === 0}
+              >
+                <option value="">{walkInAppointmentDate ? 'Selecciona un horario' : 'Primero elige una fecha'}</option>
+                {availableAppointmentSlots.map((slot) => <option key={slot} value={slot}>{slot}</option>)}
+              </select>
+            </label>
             <button className="primary-button" type="submit" disabled={submittingWalkIn}>
-              {submittingWalkIn ? 'Registrando...' : walkInAppointmentStart ? 'Registrar y agendar' : 'Registrar en espera'}
+              {submittingWalkIn ? 'Registrando...' : walkInAppointmentDate && walkInAppointmentTime ? 'Registrar y agendar' : 'Registrar en espera'}
             </button>
           </form>
         )}
@@ -626,6 +651,7 @@ function renderAppointmentActions({
       </button>
     </>
   )
+
 }
 
 function isActiveCalendarAppointment(status: string): boolean {
@@ -678,4 +704,50 @@ function isWithinClinicSchedule(date: Date): boolean {
 
   const minuteOfDay = date.getHours() * 60 + date.getMinutes()
   return (windows[date.getDay()] ?? []).some(([start, end]) => minuteOfDay >= start && minuteOfDay < end)
+}
+
+function isClinicDay(value: string): boolean {
+  const date = new Date(`${value}T12:00:00`)
+  if (Number.isNaN(date.getTime())) return false
+  const windows: Record<number, Array<[number, number]>> = {
+    1: [[540, 810], [900, 990]],
+    2: [[540, 810]],
+    3: [[540, 810], [900, 990]],
+    4: [[540, 870]],
+    5: [[540, 810]],
+    6: [[540, 750]],
+  }
+  return (windows[date.getDay()] ?? []).length > 0
+}
+
+function getAvailableAppointmentSlots(dateValue: string, appointments: CalendarAppointment[]): string[] {
+  if (!dateValue || !isClinicDay(dateValue)) return []
+  const date = new Date(`${dateValue}T12:00:00`)
+  const windows: Record<number, Array<[number, number]>> = {
+    1: [[540, 810], [900, 990]],
+    2: [[540, 810]],
+    3: [[540, 810], [900, 990]],
+    4: [[540, 870]],
+    5: [[540, 810]],
+    6: [[540, 750]],
+  }
+  const slots: string[] = []
+  for (const [start, end] of windows[date.getDay()] ?? []) {
+    for (let minute = start; minute + 30 <= end; minute += 30) {
+      const hour = Math.floor(minute / 60).toString().padStart(2, '0')
+      const mins = (minute % 60).toString().padStart(2, '0')
+      const slotStart = new Date(`${dateValue}T${hour}:${mins}:00`)
+      const slotEnd = new Date(slotStart.getTime() + 30 * 60_000)
+      if (slotStart.getTime() <= Date.now()) continue
+
+      const occupied = appointments.some((appointment) => {
+        if (!isActiveCalendarAppointment(appointment.status) || !isSameDay(appointment.start, date)) return false
+        const appointmentStart = new Date(appointment.start).getTime()
+        const appointmentEnd = new Date(appointment.end || appointment.start).getTime() || appointmentStart + 30 * 60_000
+        return appointmentStart < slotEnd.getTime() && appointmentEnd > slotStart.getTime()
+      })
+      if (!occupied) slots.push(`${hour}:${mins}`)
+    }
+  }
+  return slots
 }
