@@ -128,7 +128,10 @@ export function WaitingRoomView({
 
   const searchedAppointments = useMemo(
     () => searchedPhone
-      ? todayAppointments.filter((appointment) => phonesMatchMx(appointment.patientPhone, searchedPhone))
+      ? todayAppointments.filter((appointment) => phonesMatchMx(
+        appointment.patientPhone || extractPhoneFromCalendarText(appointment.description, appointment.title),
+        searchedPhone,
+      ))
       : [],
     [searchedPhone, todayAppointments],
   )
@@ -351,14 +354,15 @@ export function WaitingRoomView({
               {searchedPhone ? (
                 searchedAppointments.length > 0 ? (
                   searchedAppointments.map((appointment) => {
+                    const appointmentPhone = appointment.patientPhone || extractPhoneFromCalendarText(appointment.description, appointment.title)
                     const matchedLead = findLeadById(leads, appointment.matchedLeadId)
-                      ?? leads.find((lead) => phonesMatchMx(lead.phone, appointment.patientPhone) || phonesMatchMx(lead.waId, appointment.patientPhone))
+                      ?? leads.find((lead) => phonesMatchMx(lead.phone, appointmentPhone) || phonesMatchMx(lead.waId, appointmentPhone))
 
                     return (
                       <article className="patient-browser-row patient-browser-card" key={appointment.id}>
                         <div className="patient-browser-main">
                           <strong>{appointment.patientName || appointment.title}</strong>
-                          <span>{appointment.patientPhone || 'Teléfono de Calendar'}</span>
+                          <span>{appointmentPhone || 'Teléfono de Calendar'}</span>
                         </div>
 
                         <div className="patient-browser-date">
@@ -739,6 +743,12 @@ function minutesSince(value: string, now: number): number {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return 0
   return Math.max(0, Math.floor((now - date.getTime()) / 60_000))
+}
+
+function extractPhoneFromCalendarText(...values: string[]): string {
+  const source = values.join('\n')
+  const match = source.match(/(?:tel[eé]fono(?:\s+del\s+paciente)?|whatsapp)\s*:\s*([+\d][\d\s()\-]{9,})/i)
+  return match?.[1] ? canonicalMxPhoneKey(match[1]) : ''
 }
 
 function isWithinClinicSchedule(date: Date): boolean {
