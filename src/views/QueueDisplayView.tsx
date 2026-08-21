@@ -16,12 +16,25 @@ export function QueueDisplayView({ leads, onRefresh }: Props) {
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      setAdIndex((current) => (current + 1) % adImages.length)
+      setAdIndex(0)
       setShowAd(true)
-      window.setTimeout(() => setShowAd(false), 20_000)
-    }, 5 * 60_000)
+    }, 4 * 60_000)
     return () => window.clearInterval(timer)
   }, [adImages.length])
+
+  useEffect(() => {
+    if (!showAd) return
+    const timer = window.setInterval(() => {
+      setAdIndex((current) => {
+        if (current >= adImages.length - 1) {
+          setShowAd(false)
+          return 0
+        }
+        return current + 1
+      })
+    }, 8_000)
+    return () => window.clearInterval(timer)
+  }, [showAd, adImages.length])
 
   if (showAd) {
     return (
