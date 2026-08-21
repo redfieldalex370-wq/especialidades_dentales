@@ -1,5 +1,6 @@
-import { FormEvent, useDeferredValue, useEffect, useMemo, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useState } from 'react'
 import type { CalendarAppointment, CrmLead, KioskFlow, KioskLeadStatus } from '../types'
+import { canonicalMxPhoneKey } from '../lib/phone'
 
 interface Props {
   leads: CrmLead[]
@@ -32,8 +33,8 @@ export function WaitingRoomView({
   onFinalizeConsultationByLead,
 }: Props) {
   const [mode, setMode] = useState<KioskFlow>('con_cita')
-  const [nameSearch, setNameSearch] = useState('')
   const [phoneSearch, setPhoneSearch] = useState('')
+  const [searchedPhone, setSearchedPhone] = useState('')
   const [walkInName, setWalkInName] = useState('')
   const [walkInPhone, setWalkInPhone] = useState('')
   const [walkInAppointmentType, setWalkInAppointmentType] = useState<'valoracion' | 'limpieza'>('valoracion')
@@ -44,9 +45,6 @@ export function WaitingRoomView({
   const [submittingWalkIn, setSubmittingWalkIn] = useState(false)
   const [now, setNow] = useState(() => Date.now())
   const [welcomeName, setWelcomeName] = useState('')
-
-  const deferredNameSearch = useDeferredValue(nameSearch)
-  const deferredPhoneSearch = useDeferredValue(phoneSearch)
 
   const todayAppointments = useMemo(
     () =>
@@ -112,22 +110,33 @@ export function WaitingRoomView({
   const hasConsultationDelay = currentConsultationMinutes >= 30
 
   const visiblePatients = useMemo(() => {
-    const normalizedName = deferredNameSearch.trim().toLowerCase()
-    const normalizedPhone = deferredPhoneSearch.trim().replace(/\D/g, '')
-    if (!normalizedName && !normalizedPhone) return []
+    const normalizedPhone = canonicalMxPhoneKey(searchedPhone)
+    if (!normalizedPhone) return []
 
     const source = mode === 'con_cita' ? todayScheduledLeads : leads.filter((lead) => isTodayLead(lead) || lead.kioskFlow === 'sin_cita')
 
     return source
       .filter((lead) => {
-        const matchesName = normalizedName ? lead.name.toLowerCase().includes(normalizedName) : true
-        const phoneHaystack = `${lead.phone} ${lead.waId}`.replace(/\D/g, '')
-        const matchesPhone = normalizedPhone ? phoneHaystack.includes(normalizedPhone) : true
-        return matchesName && matchesPhone
+        const matchesPhone = normalizedPhone
+          ? [lead.phone, lead.waId].some((value) => canonicalMxPhoneKey(value) === normalizedPhone)
+          : true
+        return matchesPhone
       })
       .sort((a, b) => comparePreferred(a, b))
       .slice(0, 8)
-  }, [deferredNameSearch, deferredPhoneSearch, leads, mode, todayScheduledLeads])
+  }, [leads, mode, searchedPhone, todayScheduledLeads])
+
+  function handleAppointmentSearch(event: FormEvent) {
+    event.preventDefault()
+    const digits = phoneSearch.replace(/\D/g, '')
+    if (digits.length < 10) {
+      setActionMessage('Escribe un teléfono de 10 dígitos para buscar tu cita.')
+      setSearchedPhone('')
+      return
+    }
+    setActionMessage('')
+    setSearchedPhone(phoneSearch)
+  }
 
   async function handleArrival(lead: CrmLead, kioskFlow: KioskFlow) {
     setBusyLeadId(lead.id)
@@ -135,8 +144,8 @@ export function WaitingRoomView({
 
     try {
       await onUpdateLeadStatus(lead.id, 'en_espera', kioskFlow)
-      setNameSearch('')
       setPhoneSearch('')
+      setSearchedPhone('')
       setMode('con_cita')
       setWelcomeName(lead.name)
       window.setTimeout(() => setWelcomeName(''), 3500)
@@ -310,14 +319,6 @@ export function WaitingRoomView({
             <span className="eyebrow">Kiosko</span>
             <h2>Llegada del paciente</h2>
           </div>
-          <div className="patient-browser-actions">
-            <button className="secondary-button" onClick={onRefresh} disabled={loading}>
-              {loading || calendarLoading ? 'Actualizando...' : 'Actualizar'}
-            </button>
-            <button className="primary-button" onClick={() => void handleAdvanceQueue()} disabled={busyLeadId !== ''}>
-              Siguiente
-            </button>
-          </div>
         </div>
 
         <div className="kiosk-mode-switch">
@@ -326,24 +327,21 @@ export function WaitingRoomView({
         </div>
 
         {mode === 'con_cita' ? (
-          <div className="kiosk-search-block">
+          <form className="kiosk-search-block" onSubmit={handleAppointmentSearch}>
             <div className="patient-browser-bar patient-browser-bar-compact">
-              <input
-                className="patient-search-input"
-                value={nameSearch}
-                onChange={(event) => setNameSearch(event.target.value)}
-                placeholder="Nombre"
-              />
               <input
                 className="patient-search-input"
                 value={phoneSearch}
                 onChange={(event) => setPhoneSearch(event.target.value)}
-                placeholder="Telefono"
+                placeholder="Teléfono (10 dígitos)"
+                inputMode="numeric"
+                maxLength={10}
               />
+              <button className="primary-button" type="submit">Buscar cita</button>
             </div>
 
             <div className="patient-browser-list">
-              {nameSearch.trim() || phoneSearch.trim() ? (
+              {searchedPhone ? (
                 visiblePatients.length > 0 ? (
                   visiblePatients.map((lead) => (
                     <article className="patient-browser-row patient-browser-card" key={lead.id}>
@@ -363,15 +361,15 @@ export function WaitingRoomView({
                           onClick={() => void handleArrival(lead, 'con_cita')}
                           disabled={busyLeadId === lead.id}
                         >
-                          {busyLeadId === lead.id ? 'Guardando...' : 'Marcar llegada'}
+                          {busyLeadId === lead.id ? 'Guardando...' : 'Aceptar llegada'}
                         </button>
                       </div>
                     </article>
                   ))
                 ) : null
-              ) : null}
+              ) : <p className="inline-helper">Escribe tu teléfono y pulsa “Buscar cita”.</p>}
             </div>
-          </div>
+          </form>
         ) : (
           <form className="walkin-panel" onSubmit={handleWalkInSubmit}>
             <label className="field-row field-row-editable">
