@@ -222,6 +222,28 @@ code { background: #edf4f6; padding: 2px 6px; border-radius: 6px; font-size: .88
   font-size: clamp(2rem, 4vw, 4rem);
 }
 
+.display-subtitle {
+  margin: 10px 0 0;
+  color: #607987;
+  font-size: clamp(1rem, 1.8vw, 1.35rem);
+}
+
+.display-clock {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  color: #607987;
+}
+
+.display-clock strong {
+  color: #12394a;
+  font-size: clamp(1.8rem, 3vw, 3rem);
+  line-height: 1;
+}
+
+.display-clock span { text-transform: capitalize; }
+
 .display-grid {
   max-width: 1200px;
   margin: 0 auto;
@@ -247,6 +269,18 @@ code { background: #edf4f6; padding: 2px 6px; border-radius: 6px; font-size: .88
   margin: 18px 0 10px;
   font-size: clamp(2rem, 5vw, 4.5rem);
   line-height: 1.05;
+}
+
+.display-turn-code {
+  display: inline-flex;
+  width: fit-content;
+  margin-top: 22px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: #dff7f2;
+  color: #0b8174;
+  font-weight: 900;
+  letter-spacing: .12em;
 }
 
 .display-current p {
@@ -278,6 +312,14 @@ code { background: #edf4f6; padding: 2px 6px; border-radius: 6px; font-size: .88
   font-size: .8em;
 }
 
+.display-footer {
+  max-width: 1200px;
+  margin: 28px auto 0;
+  text-align: center;
+  color: #6f858f;
+  font-size: clamp(.9rem, 1.5vw, 1.1rem);
+}
+
 .sidebar-public-links {
   margin: 18px 0 0;
   padding-top: 16px;
@@ -298,6 +340,7 @@ code { background: #edf4f6; padding: 2px 6px; border-radius: 6px; font-size: .88
 
 @media (max-width: 800px) {
   .public-display-header { align-items: flex-start; flex-direction: column; }
+  .display-clock { align-items: flex-start; }
   .display-grid { grid-template-columns: 1fr; }
   .display-current, .display-queue { min-height: 0; }
 }
