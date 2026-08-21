@@ -144,17 +144,7 @@ export function WaitingRoomView({
       return
     }
     setActionMessage('')
-    const matches = todayAppointments.filter((appointment) => phonesMatchMx(
-      appointment.patientPhone || extractPhoneFromCalendarText(appointment.description, appointment.title),
-      phoneSearch,
-    ))
-
-    // Buscar la cita y registrar la llegada en una sola acción cuando hay una coincidencia única.
-    if (matches.length === 1) {
-      await handleCalendarArrival(matches[0])
-      return
-    }
-
+    // La búsqueda solo muestra la cita; la llegada se confirma con el botón de la tarjeta.
     setSearchedPhone(phoneSearch)
   }
 
