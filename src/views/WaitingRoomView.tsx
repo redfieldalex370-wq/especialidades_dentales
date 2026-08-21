@@ -381,7 +381,14 @@ export function WaitingRoomView({
                               {busyLeadId === matchedLead.id ? 'Guardando...' : 'Aceptar llegada'}
                             </button>
                           ) : (
-                            <span className="soft-pill">Cita encontrada</span>
+                            <button
+                              className="primary-button"
+                              type="button"
+                              onClick={() => void handleCalendarArrival(appointment)}
+                              disabled={busyLeadId === appointment.id}
+                            >
+                              {busyLeadId === appointment.id ? 'Guardando...' : 'Avisar llegada'}
+                            </button>
                           )}
                         </div>
                       </article>
@@ -681,6 +688,37 @@ function renderAppointmentActions({
     }
 
     return <button className="secondary-button" disabled>No identificado</button>
+  }
+
+  async function handleCalendarArrival(appointment: CalendarAppointment) {
+    const appointmentPhone = appointment.patientPhone || extractPhoneFromCalendarText(appointment.description, appointment.title)
+    const matchedLead = findLeadById(leads, appointment.matchedLeadId)
+      ?? leads.find((lead) => phonesMatchMx(lead.phone, appointmentPhone) || phonesMatchMx(lead.waId, appointmentPhone))
+
+    if (matchedLead) {
+      await handleArrival(matchedLead, 'con_cita')
+      return
+    }
+
+    if (!appointmentPhone) {
+      setActionMessage('La cita no contiene un teléfono utilizable para registrar la llegada.')
+      return
+    }
+
+    setBusyLeadId(appointment.id)
+    setActionMessage('')
+    try {
+      const lead = await onRegisterWalkIn(appointment.patientName || appointment.title, appointmentPhone)
+      setPhoneSearch('')
+      setSearchedPhone('')
+      setMode('con_cita')
+      setWelcomeName(lead.name)
+      window.setTimeout(() => setWelcomeName(''), 3500)
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : 'No se pudo registrar la llegada.')
+    } finally {
+      setBusyLeadId('')
+    }
   }
 
   if (matchedLead.kioskStatus === 'pendiente') {
