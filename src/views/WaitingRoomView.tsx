@@ -127,7 +127,7 @@ export function WaitingRoomView({
     [searchedPhone, todayAppointments],
   )
 
-  function handleAppointmentSearch(event: FormEvent) {
+  async function handleAppointmentSearch(event: FormEvent) {
     event.preventDefault()
     const digits = phoneSearch.replace(/\D/g, '')
     if (digits.length < 10) {
@@ -136,6 +136,17 @@ export function WaitingRoomView({
       return
     }
     setActionMessage('')
+    const matches = todayAppointments.filter((appointment) => phonesMatchMx(
+      appointment.patientPhone || extractPhoneFromCalendarText(appointment.description, appointment.title),
+      phoneSearch,
+    ))
+
+    // Buscar la cita y registrar la llegada en una sola acción cuando hay una coincidencia única.
+    if (matches.length === 1) {
+      await handleCalendarArrival(matches[0])
+      return
+    }
+
     setSearchedPhone(phoneSearch)
   }
 
@@ -294,14 +305,16 @@ export function WaitingRoomView({
   return (
     <div className="view-stack">
       {welcomeName && (
-        <section className="kiosk-welcome-card" role="status" aria-live="polite">
-          <span className="kiosk-welcome-icon">✓</span>
-          <div>
+        <div className="kiosk-welcome-overlay" role="status" aria-live="polite">
+          <div className="kiosk-welcome-screen">
+            <span className="kiosk-welcome-icon">✓</span>
             <span className="eyebrow">Llegada registrada</span>
-            <h2>¡Bienvenido/a, {welcomeName}!</h2>
-            <p>Tu llegada quedó registrada. Permanece atento/a; te llamaremos por tu turno.</p>
+            <h1>¡Bienvenido/a!</h1>
+            <h2>{welcomeName}</h2>
+            <p>Tu llegada quedó registrada.</p>
+            <small>Permanece atento/a; te llamaremos por tu turno.</small>
           </div>
-        </section>
+        </div>
       )}
 
       {currentPatient && (

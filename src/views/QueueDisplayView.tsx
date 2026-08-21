@@ -5,10 +5,32 @@ interface Props { leads: CrmLead[]; onRefresh: () => void }
 
 export function QueueDisplayView({ leads, onRefresh }: Props) {
   const [now, setNow] = useState(() => new Date())
+  const [adIndex, setAdIndex] = useState(0)
+  const [showAd, setShowAd] = useState(false)
+  const adImages = ['/zenda-cafe/1.png', '/zenda-cafe/7.png', '/zenda-cafe/8.png', '/zenda-cafe/9.png', '/zenda-cafe/10.png', '/zenda-cafe/11.png', '/zenda-cafe/12.png', '/zenda-cafe/13.png', '/zenda-cafe/14.png', '/zenda-cafe/15.png', '/zenda-cafe/16.png', '/zenda-cafe/17.png']
+
   useEffect(() => {
     const timer = window.setInterval(() => { setNow(new Date()); onRefresh() }, 15_000)
     return () => window.clearInterval(timer)
   }, [onRefresh])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setAdIndex((current) => (current + 1) % adImages.length)
+      setShowAd(true)
+      window.setTimeout(() => setShowAd(false), 20_000)
+    }, 5 * 60_000)
+    return () => window.clearInterval(timer)
+  }, [adImages.length])
+
+  if (showAd) {
+    return (
+      <div className="public-display public-display-ad" role="img" aria-label="Anuncio de Zenda Café">
+        <img src={adImages[adIndex]} alt="Menú de Zenda Café" />
+      </div>
+    )
+  }
+
   const current = leads.find((lead) => lead.kioskStatus === 'en_consulta')
   const waiting = leads.filter((lead) => lead.kioskStatus === 'en_espera').sort((a, b) => new Date(a.arrivalAt || a.createdAt).getTime() - new Date(b.arrivalAt || b.createdAt).getTime())
   return <div className="public-display">
