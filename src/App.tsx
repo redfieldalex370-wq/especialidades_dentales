@@ -35,8 +35,9 @@ interface SelectedPatientState {
 
 export default function App() {
   const path = window.location.pathname.toLowerCase()
-  const publicMode = path === '/kiosko' || path === '/pantalla'
-  const [view, setView] = useState<ViewKey>(publicMode ? 'waiting' : 'dashboard')
+  const doctorMode = path === '/doctor'
+  const publicMode = !doctorMode
+  const [view, setView] = useState<ViewKey>(doctorMode ? 'dashboard' : 'waiting')
   const companyKey = 'especialidades-dentales'
   const [crmLeads, setCrmLeads] = useState<CrmLead[]>([])
   const [waClientes, setWaClientes] = useState<WaClienteEstado[]>([])

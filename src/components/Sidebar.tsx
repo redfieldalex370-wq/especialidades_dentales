@@ -37,7 +37,8 @@ export function Sidebar({ active, onChange }: SidebarProps) {
       </nav>
 
       <div className="sidebar-public-links">
-        <a href="/kiosko">Kiosko</a>
+        <a href="/">Kiosko</a>
+        <a href="/doctor">Panel del doctor</a>
         <a href="/pantalla">Pantalla de turnos</a>
       </div>
 
