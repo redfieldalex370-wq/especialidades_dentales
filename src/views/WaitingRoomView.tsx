@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import type { CalendarAppointment, CrmLead, KioskFlow, KioskLeadStatus } from '../types'
-import { canonicalMxPhoneKey } from '../lib/phone'
+import { canonicalMxPhoneKey, phonesMatchMx } from '../lib/phone'
 
 interface Props {
   leads: CrmLead[]
@@ -125,6 +125,13 @@ export function WaitingRoomView({
       .sort((a, b) => comparePreferred(a, b))
       .slice(0, 8)
   }, [leads, mode, searchedPhone, todayScheduledLeads])
+
+  const searchedAppointments = useMemo(
+    () => searchedPhone
+      ? todayAppointments.filter((appointment) => phonesMatchMx(appointment.patientPhone, searchedPhone))
+      : [],
+    [searchedPhone, todayAppointments],
+  )
 
   function handleAppointmentSearch(event: FormEvent) {
     event.preventDefault()
@@ -342,31 +349,61 @@ export function WaitingRoomView({
 
             <div className="patient-browser-list">
               {searchedPhone ? (
-                visiblePatients.length > 0 ? (
+                searchedAppointments.length > 0 ? (
+                  searchedAppointments.map((appointment) => {
+                    const matchedLead = findLeadById(leads, appointment.matchedLeadId)
+                      ?? leads.find((lead) => phonesMatchMx(lead.phone, appointment.patientPhone) || phonesMatchMx(lead.waId, appointment.patientPhone))
+
+                    return (
+                      <article className="patient-browser-row patient-browser-card" key={appointment.id}>
+                        <div className="patient-browser-main">
+                          <strong>{appointment.patientName || appointment.title}</strong>
+                          <span>{appointment.patientPhone || 'Teléfono de Calendar'}</span>
+                        </div>
+
+                        <div className="patient-browser-date">
+                          <strong>{formatDateTime(appointment.start)}</strong>
+                          <span>{appointment.title}</span>
+                        </div>
+
+                        <div className="patient-browser-actions">
+                          {matchedLead ? (
+                            <button
+                              className="primary-button"
+                              type="button"
+                              onClick={() => void handleArrival(matchedLead, 'con_cita')}
+                              disabled={busyLeadId === matchedLead.id}
+                            >
+                              {busyLeadId === matchedLead.id ? 'Guardando...' : 'Aceptar llegada'}
+                            </button>
+                          ) : (
+                            <span className="soft-pill">Cita encontrada</span>
+                          )}
+                        </div>
+                      </article>
+                    )
+                  })
+                ) : visiblePatients.length > 0 ? (
                   visiblePatients.map((lead) => (
                     <article className="patient-browser-row patient-browser-card" key={lead.id}>
-                      <button className="patient-browser-main" onClick={() => onOpenLead(lead.id)}>
+                      <div className="patient-browser-main">
                         <strong>{lead.name}</strong>
                         <span>{lead.phone || lead.waId || 'Sin telefono'}</span>
-                      </button>
-
+                      </div>
                       <div className="patient-browser-date">
                         <strong>{lead.appointmentDate ? formatDateTime(lead.appointmentDate) : 'Sin cita'}</strong>
                         <span>{lead.kioskStatus.replaceAll('_', ' ')}</span>
                       </div>
-
                       <div className="patient-browser-actions">
-                        <button
-                          className="primary-button"
-                          onClick={() => void handleArrival(lead, 'con_cita')}
-                          disabled={busyLeadId === lead.id}
-                        >
+                        <button className="primary-button" type="button" onClick={() => void handleArrival(lead, 'con_cita')} disabled={busyLeadId === lead.id}>
                           {busyLeadId === lead.id ? 'Guardando...' : 'Aceptar llegada'}
                         </button>
                       </div>
                     </article>
                   ))
-                ) : null
+                ) : (
+                  <p className="inline-helper">No encontramos una cita para ese teléfono hoy.</p>
+                )
               ) : <p className="inline-helper">Escribe tu teléfono y pulsa “Buscar cita”.</p>}
             </div>
           </form>
