@@ -54,15 +54,6 @@ export function WaitingRoomView({
     [calendarAppointments],
   )
 
-  const todayCalendarPhoneKeys = useMemo(
-    () => new Set(
-      todayAppointments
-        .map((appointment) => canonicalMxPhoneKey(appointment.patientPhone || extractPhoneFromCalendarText(appointment.description, appointment.title)))
-        .filter(Boolean),
-    ),
-    [todayAppointments],
-  )
-
   const availableAppointmentSlots = useMemo(
     () => getAvailableAppointmentSlots(walkInAppointmentDate, calendarAppointments),
     [calendarAppointments, walkInAppointmentDate],
@@ -104,20 +95,6 @@ export function WaitingRoomView({
         .sort((a, b) => compareRecentActivity(b, a))
         .slice(0, 6),
     [leads, todayAppointmentLeadIds],
-  )
-
-  const walkInPatients = useMemo(
-    () =>
-      [...leads]
-        .filter((lead) =>
-          lead.kioskFlow === 'sin_cita' &&
-          lead.kioskStatus !== 'finalizada' &&
-          isTodayLead(lead) &&
-          ![lead.phone, lead.waId].some((value) => todayCalendarPhoneKeys.has(canonicalMxPhoneKey(value))),
-        )
-        .sort((a, b) => compareWaitingOrder(a, b))
-        .slice(0, 8),
-    [leads, todayCalendarPhoneKeys],
   )
 
   const currentConsultationMinutes = currentPatient ? minutesSince(currentPatient.consultaInicioAt || currentPatient.arrivalAt, now) : 0
@@ -572,34 +549,6 @@ export function WaitingRoomView({
           </div>
         </article>
 
-        <article className="panel">
-          <div className="section-head compact">
-            <div>
-              <span className="eyebrow">Sin cita</span>
-              <h2>Entraron sin cita</h2>
-            </div>
-            <span className="soft-pill">{walkInPatients.length} pacientes</span>
-          </div>
-
-          <div className="appointment-list">
-            {walkInPatients.length > 0 ? (
-              walkInPatients.map((lead) => (
-                <article className="appointment-card appointment-card-static appointment-card-match-no" key={lead.id}>
-                  <div>
-                    <strong>{lead.name}</strong>
-                    <span>{lead.phone || lead.waId || 'Sin telefono'}</span>
-                    <small>{lead.arrivalAt ? `Llegó ${formatTime(lead.arrivalAt)}` : 'Pendiente de recepción'}</small>
-                  </div>
-                <div className="patient-browser-actions">
-                  <button className="secondary-button" onClick={() => onOpenLead(lead.id)}>Ficha</button>
-                </div>
-                </article>
-              ))
-            ) : (
-              <EmptyCopy title="Sin pacientes walk-in" text="Todavia no hay pacientes registrados sin cita hoy." compact />
-            )}
-          </div>
-        </article>
       </section>
 
       {waitingPatients.length > 0 && (
@@ -614,10 +563,7 @@ export function WaitingRoomView({
 
           <div className="appointment-list">
             {waitingPatients.map((lead, index) => {
-              const linkedCalendarAppointment = todayAppointments.find((appointment) => {
-                const appointmentPhone = appointment.patientPhone || extractPhoneFromCalendarText(appointment.description, appointment.title)
-                return phonesMatchMx(appointmentPhone, lead.phone) || phonesMatchMx(appointmentPhone, lead.waId)
-              })
+              const linkedCalendarAppointment = findCalendarAppointmentForLead(lead, todayAppointments)
               const hasCalendarAppointment = Boolean(linkedCalendarAppointment)
 
               return (
@@ -800,6 +746,17 @@ function labelForAppointmentState(status: KioskLeadStatus): string {
 
 function findLeadById(leads: CrmLead[], leadId: string): CrmLead | null {
   return leads.find((lead) => lead.id === leadId) ?? null
+}
+
+function findCalendarAppointmentForLead(lead: CrmLead, appointments: CalendarAppointment[]): CalendarAppointment | null {
+  const leadName = lead.name.trim().toLocaleLowerCase()
+  return appointments.find((appointment) => {
+    const appointmentPhone = appointment.patientPhone || extractPhoneFromCalendarText(appointment.description, appointment.title)
+    const appointmentName = (appointment.patientName || '').trim().toLocaleLowerCase()
+    return phonesMatchMx(appointmentPhone, lead.phone) ||
+      phonesMatchMx(appointmentPhone, lead.waId) ||
+      Boolean(leadName && appointmentName && leadName === appointmentName)
+  }) ?? null
 }
 
 function minutesSince(value: string, now: number): number {
