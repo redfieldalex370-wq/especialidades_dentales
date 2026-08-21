@@ -49,7 +49,7 @@ export function WaitingRoomView({
   const todayAppointments = useMemo(
     () =>
       calendarAppointments
-        .filter((item) => isSameDay(item.start, new Date()) && isActiveCalendarAppointment(item.status))
+        .filter((item) => isSameDay(item.start, new Date()) && isActiveCalendarAppointment(item.status) && isWithinClinicSchedule(new Date(item.start)))
         .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime()),
     [calendarAppointments],
   )
@@ -101,8 +101,6 @@ export function WaitingRoomView({
     [leads],
   )
 
-  const arrivedTodayCount = waitingPatients.length + (currentPatient ? 1 : 0) + finishedPatients.length
-  const pendingTodayCount = todayScheduledLeads.filter((lead) => lead.kioskStatus === 'pendiente').length
   const currentConsultationMinutes = currentPatient ? minutesSince(currentPatient.consultaInicioAt || currentPatient.arrivalAt, now) : 0
   const hasConsultationDelay = currentConsultationMinutes >= 30
 
@@ -235,29 +233,6 @@ export function WaitingRoomView({
 
   return (
     <div className="view-stack">
-      <section className="crm-dashboard-grid waiting-room-grid">
-        <article className="panel waiting-summary-panel">
-          <div className="waiting-summary-grid">
-            <div className="waiting-summary-card">
-              <span>Citas de hoy</span>
-              <strong>{todayAppointments.length}</strong>
-            </div>
-            <div className="waiting-summary-card">
-              <span>Ya llegaron</span>
-              <strong>{arrivedTodayCount}</strong>
-            </div>
-            <div className="waiting-summary-card">
-              <span>En consulta</span>
-              <strong>{currentPatient ? 1 : 0}</strong>
-            </div>
-            <div className="waiting-summary-card">
-              <span>Pendientes</span>
-              <strong>{pendingTodayCount}</strong>
-            </div>
-          </div>
-        </article>
-      </section>
-
       {currentPatient && (
         <section className={`panel waiting-current-card ${hasConsultationDelay ? 'alert-panel' : ''}`}>
           <div className="section-head compact">
@@ -393,7 +368,16 @@ export function WaitingRoomView({
                 className="field-input"
                 type="datetime-local"
                 value={walkInAppointmentStart}
-                onChange={(event) => setWalkInAppointmentStart(event.target.value)}
+                onChange={(event) => {
+                  const value = event.target.value
+                  if (value && !isWithinClinicSchedule(new Date(value))) {
+                    setWalkInAppointmentStart('')
+                    setActionMessage('Selecciona un horario disponible: lunes a viernes según agenda; sábado solo de 9:00 a 12:30.')
+                    return
+                  }
+                  setActionMessage('')
+                  setWalkInAppointmentStart(value)
+                }}
               />
             </label>
             <button className="primary-button" type="submit" disabled={submittingWalkIn}>
