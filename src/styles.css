@@ -834,6 +834,39 @@ code { background: #edf4f6; padding: 2px 6px; border-radius: 6px; font-size: .88
   gap: 18px;
 }
 
+.kiosk-welcome-card {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 22px 26px;
+  border: 1px solid #b9eadf;
+  border-radius: 20px;
+  background: linear-gradient(120deg, #e4faf4, #f6fcfb);
+  box-shadow: var(--shadow);
+}
+
+.kiosk-welcome-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: #0f9f8f;
+  color: #fff;
+  font-size: 26px;
+  font-weight: 900;
+}
+
+.kiosk-welcome-card h2 {
+  margin: 4px 0;
+}
+
+.kiosk-welcome-card p {
+  margin: 0;
+  color: var(--muted);
+}
+
 .appointment-card-static {
   cursor: default;
 }

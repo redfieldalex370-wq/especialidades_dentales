@@ -43,6 +43,7 @@ export function WaitingRoomView({
   const [busyLeadId, setBusyLeadId] = useState('')
   const [submittingWalkIn, setSubmittingWalkIn] = useState(false)
   const [now, setNow] = useState(() => Date.now())
+  const [welcomeName, setWelcomeName] = useState('')
 
   const deferredNameSearch = useDeferredValue(nameSearch)
   const deferredPhoneSearch = useDeferredValue(phoneSearch)
@@ -134,9 +135,11 @@ export function WaitingRoomView({
 
     try {
       await onUpdateLeadStatus(lead.id, 'en_espera', kioskFlow)
-      setActionMessage(`Llegada registrada para ${lead.name}.`)
       setNameSearch('')
       setPhoneSearch('')
+      setMode('con_cita')
+      setWelcomeName(lead.name)
+      window.setTimeout(() => setWelcomeName(''), 3500)
     } catch (error) {
       setActionMessage(error instanceof Error ? error.message : 'No se pudo registrar la llegada.')
     } finally {
@@ -229,7 +232,9 @@ export function WaitingRoomView({
       setWalkInAppointmentDate('')
       setWalkInAppointmentTime('')
       setWalkInAppointmentType('valoracion')
-      onOpenLead(lead.id)
+      setMode('con_cita')
+      setWelcomeName(lead.name)
+      window.setTimeout(() => setWelcomeName(''), 3500)
     } catch (error) {
       setActionMessage(error instanceof Error ? error.message : 'No se pudo registrar el paciente sin cita.')
     } finally {
@@ -244,6 +249,17 @@ export function WaitingRoomView({
 
   return (
     <div className="view-stack">
+      {welcomeName && (
+        <section className="kiosk-welcome-card" role="status" aria-live="polite">
+          <span className="kiosk-welcome-icon">✓</span>
+          <div>
+            <span className="eyebrow">Llegada registrada</span>
+            <h2>¡Bienvenido/a, {welcomeName}!</h2>
+            <p>Tu llegada quedó registrada. Permanece atento/a; te llamaremos por tu turno.</p>
+          </div>
+        </section>
+      )}
+
       {currentPatient && (
         <section className={`panel waiting-current-card ${hasConsultationDelay ? 'alert-panel' : ''}`}>
           <div className="section-head compact">
