@@ -185,6 +185,9 @@ export function WaitingRoomView({
     setActionMessage('')
     try {
       const lead = await onRegisterWalkIn(appointment.patientName || appointment.title, appointmentPhone)
+      // El alta técnica crea el lead inicial; esta llegada proviene de Calendar.
+      // Cambiamos el flujo operativo para que no aparezca como walk-in.
+      await onUpdateLeadStatus(lead.id, 'en_espera', 'con_cita')
       setPhoneSearch('')
       setSearchedPhone('')
       setMode('con_cita')
