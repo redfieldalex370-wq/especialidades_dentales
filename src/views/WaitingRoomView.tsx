@@ -54,6 +54,15 @@ export function WaitingRoomView({
     [calendarAppointments],
   )
 
+  const todayCalendarPhoneKeys = useMemo(
+    () => new Set(
+      todayAppointments
+        .map((appointment) => canonicalMxPhoneKey(appointment.patientPhone || extractPhoneFromCalendarText(appointment.description, appointment.title)))
+        .filter(Boolean),
+    ),
+    [todayAppointments],
+  )
+
   const availableAppointmentSlots = useMemo(
     () => getAvailableAppointmentSlots(walkInAppointmentDate, calendarAppointments),
     [calendarAppointments, walkInAppointmentDate],
@@ -100,10 +109,15 @@ export function WaitingRoomView({
   const walkInPatients = useMemo(
     () =>
       [...leads]
-        .filter((lead) => lead.kioskFlow === 'sin_cita' && lead.kioskStatus !== 'finalizada' && isTodayLead(lead))
+        .filter((lead) =>
+          lead.kioskFlow === 'sin_cita' &&
+          lead.kioskStatus !== 'finalizada' &&
+          isTodayLead(lead) &&
+          ![lead.phone, lead.waId].some((value) => todayCalendarPhoneKeys.has(canonicalMxPhoneKey(value))),
+        )
         .sort((a, b) => compareWaitingOrder(a, b))
         .slice(0, 8),
-    [leads],
+    [leads, todayCalendarPhoneKeys],
   )
 
   const currentConsultationMinutes = currentPatient ? minutesSince(currentPatient.consultaInicioAt || currentPatient.arrivalAt, now) : 0
@@ -599,12 +613,19 @@ export function WaitingRoomView({
           </div>
 
           <div className="appointment-list">
-            {waitingPatients.map((lead, index) => (
+            {waitingPatients.map((lead, index) => {
+              const linkedCalendarAppointment = todayAppointments.find((appointment) => {
+                const appointmentPhone = appointment.patientPhone || extractPhoneFromCalendarText(appointment.description, appointment.title)
+                return phonesMatchMx(appointmentPhone, lead.phone) || phonesMatchMx(appointmentPhone, lead.waId)
+              })
+              const hasCalendarAppointment = Boolean(linkedCalendarAppointment)
+
+              return (
               <article className="appointment-card appointment-card-static" key={lead.id}>
                 <div>
                   <strong>{lead.name}</strong>
-                  <span>{lead.appointmentDate ? formatTime(lead.appointmentDate) : 'Sin cita'} · llegó {lead.arrivalAt ? formatTime(lead.arrivalAt) : 'ahora'}</span>
-                  <small>{lead.kioskFlow === 'sin_cita' ? 'Sin cita' : 'Con cita del día'} · esperando {minutesSince(lead.arrivalAt, now)} min</small>
+                  <span>{lead.appointmentDate ? formatTime(lead.appointmentDate) : linkedCalendarAppointment ? formatTime(linkedCalendarAppointment.start) : 'Sin cita'} · llegó {lead.arrivalAt ? formatTime(lead.arrivalAt) : 'ahora'}</span>
+                  <small>{hasCalendarAppointment || lead.kioskFlow !== 'sin_cita' ? 'Con cita del día' : 'Sin cita'} · esperando {minutesSince(lead.arrivalAt, now)} min</small>
                 </div>
                 <div className="patient-browser-actions">
                   <button className="secondary-button" onClick={() => onOpenLead(lead.id)}>Ficha</button>
@@ -621,7 +642,8 @@ export function WaitingRoomView({
                   )}
                 </div>
               </article>
-            ))}
+              )
+            })}
           </div>
         </section>
       )}
