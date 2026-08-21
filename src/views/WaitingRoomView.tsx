@@ -97,6 +97,14 @@ export function WaitingRoomView({
     [leads, todayAppointmentLeadIds],
   )
 
+  const walkInPatients = useMemo(
+    () => [...leads]
+      .filter((lead) => lead.kioskFlow === 'sin_cita' && lead.kioskStatus !== 'finalizada' && isTodayLead(lead))
+      .sort((a, b) => compareWaitingOrder(a, b))
+      .slice(0, 8),
+    [leads],
+  )
+
   const currentConsultationMinutes = currentPatient ? minutesSince(currentPatient.consultaInicioAt || currentPatient.arrivalAt, now) : 0
   const hasConsultationDelay = currentConsultationMinutes >= 30
 
@@ -562,50 +570,25 @@ export function WaitingRoomView({
           </div>
         </article>
 
-      </section>
-
-      {waitingPatients.length > 0 && (
-        <section className="panel">
+        <article className="panel">
           <div className="section-head compact">
-            <div>
-              <span className="eyebrow">Sala de espera</span>
-              <h2>Quien sigue</h2>
-            </div>
-            <span className="soft-pill">{waitingPatients.length} esperando</span>
+            <div><span className="eyebrow">Sin cita</span><h2>Entraron sin cita</h2></div>
+            <span className="soft-pill">{walkInPatients.length} pacientes</span>
           </div>
-
           <div className="appointment-list">
-            {waitingPatients.map((lead, index) => {
-              const linkedCalendarAppointment = findCalendarAppointmentForLead(lead, todayAppointments)
-              const hasCalendarAppointment = Boolean(linkedCalendarAppointment)
-
-              return (
-              <article className="appointment-card appointment-card-static" key={lead.id}>
+            {walkInPatients.length > 0 ? walkInPatients.map((lead) => (
+              <article className="appointment-card appointment-card-static appointment-card-match-no" key={lead.id}>
                 <div>
                   <strong>{lead.name}</strong>
-                  <span>{lead.appointmentDate ? formatTime(lead.appointmentDate) : linkedCalendarAppointment ? formatTime(linkedCalendarAppointment.start) : 'Sin cita'} · llegó {lead.arrivalAt ? formatTime(lead.arrivalAt) : 'ahora'}</span>
-                  <small>{hasCalendarAppointment || lead.kioskFlow !== 'sin_cita' ? 'Con cita del día' : 'Sin cita'} · esperando {minutesSince(lead.arrivalAt, now)} min</small>
+                  <span>{lead.phone || lead.waId || 'Sin telefono'}</span>
+                  <small>{lead.arrivalAt ? `Llegó ${formatTime(lead.arrivalAt)}` : 'Pendiente de recepción'}</small>
                 </div>
-                <div className="patient-browser-actions">
-                  <button className="secondary-button" onClick={() => onOpenLead(lead.id)}>Ficha</button>
-                  {index === 0 ? (
-                    <button
-                      className="primary-button"
-                      onClick={() => void handleAdvanceQueue()}
-                      disabled={busyLeadId === lead.id || Boolean(currentPatient)}
-                    >
-                      {busyLeadId === lead.id ? 'Llamando...' : currentPatient ? 'Consulta activa' : 'Pasar'}
-                    </button>
-                  ) : (
-                    <button className="secondary-button" disabled>En fila</button>
-                  )}
-                </div>
+                <button className="secondary-button" onClick={() => onOpenLead(lead.id)}>Ficha</button>
               </article>
-              )
-            })}
+            )) : <EmptyCopy title="Sin pacientes walk-in" text="Todavia no hay pacientes registrados sin cita hoy." compact />}
           </div>
-        </section>
-      )}
+        </article>
+      </section>
     </div>
   )
 }
